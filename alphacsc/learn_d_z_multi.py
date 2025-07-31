@@ -111,6 +111,7 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
     callback : func
         A callback function called at the end of each loop of the
         coordinate descent, with z_encoder and pobj as its arguments.
+        This function can return True to stop the algorithm.
     random_state : int | None
         The random state.
     raise_on_increase : boolean
@@ -419,7 +420,13 @@ def get_iteration_func(eps, stopping_pobj, callback, lmbd_max, name, verbose,
                        raise_on_increase):
     def end_iteration(z_encoder, pobj, iteration):
         if callable(callback):
-            callback(z_encoder, pobj)
+            if callback(z_encoder, pobj):
+                if verbose == 1:
+                    print("")
+                elif verbose > 1:
+                    print(f"[{name}] Stopping after {iteration + 1} iterations, "
+                          f"after callback returns True.")
+                return True
 
         # Only check that the cost is always going down when the regularization
         # parameter is fixed.
