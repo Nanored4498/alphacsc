@@ -51,7 +51,7 @@ def _dp_updt_prod(D, X, penalty, dp, last, atom_index, atom_coeff):
 			dp[t], last[t] = dp[t-1], last[t-1]
 
 
-@nb.njit(nb.int32(_int32_r(), _int32_r(), _int32_r(), nb.int32, _int32_w(2), _float64_w()), cache=True, nogil=True)
+@nb.njit(nb.int32(_int32_r(), _int32_r(), _float64_r(), nb.int32, _int32_w(2), _float64_w()), cache=True, nogil=True)
 def _get_nz_values(last, atom_index, atom_coeff, L, nz_index, nz_coeff):
 	k, t = 0, last[-1]
 	while t != -1:
@@ -79,7 +79,7 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff):
 			E += coeff * (coeff - 2. * proj)
 	return E
 
-@nb.njit(nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_w(3), _int32_r()), cache=True, nogil=True)
+@nb.njit(nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_w(3), _int32_w()), cache=True, nogil=True)
 def _compute_z_hat(nnz, nz_index, nz_coeff, z_hat, nnz_atom):
 	z_hat[:] = 0
 	nnz_atom[:] = 0
@@ -112,18 +112,18 @@ class NoOverlapEncoder(BaseZEncoder):
 			T2 = pyfftw.next_fast_len(self.n_times)
 			Tc = T2//2+1
 			self.X_fft = pyfftw.interfaces.numpy_fft.rfft(self.X, n=T2) / T2
-			self.fft_data = pyfftw.zeros_aligned((self.n_atoms, self.self.n_channels, 2*Tc), dtype='float64')
-			self.fft_out = np.ndarray((self.n_atoms, self.self.n_channels, Tc), dtype='complex128', buffer=self.fft_data.data)
+			self.fft_data = pyfftw.zeros_aligned((self.n_atoms, self.n_channels, 2*Tc), dtype='float64')
+			self.fft_out = np.ndarray((self.n_atoms, self.n_channels, Tc), dtype='complex128', buffer=self.fft_data.data)
 			self.proj = pyfftw.zeros_aligned((self.n_atoms, 2*Tc), dtype='float64')
 			self.proj_in = np.ndarray((self.n_atoms, Tc), dtype='complex128', buffer=self.proj.data)
 			self.fft_fwd = pyfftw.FFTW(
-				self.fft_data[:,:T2],
+				self.fft_data[...,:T2],
 				self.fft_out,
 				axes=(-1,), direction='FFTW_FORWARD', flags=('FFTW_ESTIMATE',)
 			)
 			self.fft_bwd = pyfftw.FFTW(
 				self.proj_in,
-				self.proj[:,:T2],
+				self.proj[...,:T2],
 				axes=(-1,), direction='FFTW_BACKWARD', flags=('FFTW_ESTIMATE',), normalise_idft=False
 			)
 		
@@ -175,7 +175,7 @@ class NoOverlapEncoder(BaseZEncoder):
 			if self.z_hat is None:
 				self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
 				self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
-			_compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.z_hat)
+			_compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.z_hat, self.nnz_atom)
 			self.z_hat_computed = True
 
 	def get_z_hat(self):
@@ -183,6 +183,7 @@ class NoOverlapEncoder(BaseZEncoder):
 		return self.z_hat
 
 	def get_z_nnz(self):
+		self._compute_dense_z_hat()
 		return self.nnz_atom
 
 	def set_D(self, D):
