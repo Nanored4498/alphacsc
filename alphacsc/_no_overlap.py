@@ -105,7 +105,7 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
             coeff = nz_coeff[trial][i]
             z_hat[trial][ind][t] = coeff
             ztz[ind][ind][t0] += coeff**2
-            ztX[ind] += X[trial, :, t:t+L]
+            ztX[trial] += X[trial, :, t:t+L]
             nnz_atom[ind] += 1
 
 
@@ -193,7 +193,7 @@ class NoOverlapEncoder(BaseZEncoder):
             if self.z_hat is None:
                 self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
                 self.ztz = np.zeros((self.n_atoms, self.n_atoms, 2*self.n_times_atom-1), dtype=np.float64)
-                self.ztX = np.empty((self.n_trials, self.n_atoms, self.n_times_atom), dtype=np.float64)
+                self.ztX = np.empty((self.n_trials, self.n_channels, self.n_times_atom), dtype=np.float64)
                 self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
             _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X, self.z_hat, self.ztz, self.ztX, self.nnz_atom)
             self.z_hat_computed = True
