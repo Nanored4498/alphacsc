@@ -85,6 +85,41 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff):
             E += coeff * (coeff - 2. * proj)
     return E
 
+@nb.njit(nb.int64(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3), _float64_r(3)), cache=True, nogil=True)
+def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
+    T = X.shape[-1]
+    L = D.shape[-1]
+    C = X.shape[1]
+    patch = np.zeros(L, dtype=np.float64)
+    max_error = 0.
+    max_error_ind = 0
+    for trial in range(len(nnz)):
+        nz_ind = 0
+        atom_ind = 0
+        atom_coeff = 0.
+        t0, t1 = 0, 0
+        error = 0.
+        for t in range(T):
+            if nz_ind < nnz[trial] and nz_index[trial, nz_ind, 1] == t:
+                atom_ind = nz_index[trial, nz_ind, 0]
+                atom_coeff = nz_coeff[trial, nz_ind]
+                t0 = t
+                t1 = t+L
+                nz_ind += 1
+            tp = t%L
+            if t >= L: error -= patch[tp]
+            diff = 0
+            for c in range(C):
+                dc = X[trial, c, t]
+                if t < t1: diff -= atom_coeff * D[atom_ind, c, t-t0]
+                diff += dc**2
+            patch[tp] = diff
+            error += diff
+            if error > max_error:
+                max_error = error
+                max_error_ind = (trial<<32) | max(0, t-L+1)
+    return max_error_ind
+
 @nb.njit(nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
                  _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()),
          cache=True, nogil=True)
@@ -94,17 +129,17 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
     p = ztz.shape[0]
     t0 = ztz.shape[2]//2
     for i in range(p):
-        ztz[i][i][t0] = 0
+        ztz[i, i, t0] = 0
     L = ztX.shape[2]
     ztX[:] = 0
     nnz_atom[:] = 0
     for trial in range(len(nnz)):
         for i in range(nnz[trial]):
-            ind = nz_index[trial][i][0]
-            t = nz_index[trial][i][1]
-            coeff = nz_coeff[trial][i]
-            z_hat[trial][ind][t] = coeff
-            ztz[ind][ind][t0] += coeff**2
+            ind = nz_index[trial, i, 0]
+            t = nz_index[trial, i, 1]
+            coeff = nz_coeff[trial, i]
+            z_hat[trial, ind, t] = coeff
+            ztz[ind, ind, t0] += coeff**2
             ztX[trial] += X[trial, :, t:t+L]
             nnz_atom[ind] += 1
 
@@ -187,6 +222,12 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def get_cost(self):
         return self.cost
+
+    def get_max_error_patch(self):
+        ind = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff, self.D_hat, self.X)
+        atom_ind = ind >> 32
+        t = ind & ((1<<32)-1)
+        return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
 
     def _compute_dense_z_hat(self):
         if not self.z_hat_computed:
