@@ -13,12 +13,16 @@ def _int32_r(d=1):
 def _int32_w(d=1):
     return nb.types.Array(nb.int32, d, 'C', False)
 
-@nb.njit(nb.void(_float64_r(2), nb.int32, nb.float64,
-                 _float64_w(), _int32_w(), _int32_w(), _float64_w()),
-         cache=True, nogil=True)
+@nb.njit(
+    nb.void(
+        _float64_r(2), nb.int32, nb.float64,
+        _float64_w(), _int32_w(), _int32_w(), _float64_w()
+    ), cache=True, nogil=True
+)
 def _dp_updt_fft(proj, L, penalty,
                  dp, last, atom_index, atom_coeff):
     p = proj.shape[0]
+    penalty *= 2
     for t in range(L, len(dp)):
         max_proj, ind = 0, 0
         for i in range(p):
@@ -34,12 +38,15 @@ def _dp_updt_fft(proj, L, penalty,
             dp[t], last[t] = dp[t-1], last[t-1]
 
 
-@nb.njit(nb.void(_float64_r(3), _float64_r(2), nb.float64,
-                 _float64_w(), _int32_w(), _int32_w(), _float64_w()),
-         cache=True, nogil=True)
+@nb.njit(
+    nb.void(_float64_r(3), _float64_r(2), nb.float64,
+            _float64_w(), _int32_w(), _int32_w(), _float64_w()
+    ), cache=True, nogil=True
+)
 def _dp_updt_prod(D, X, penalty,
                   dp, last, atom_index, atom_coeff):
     p, chan, L = D.shape
+    penalty *= 2
     for t in range(L, len(dp)):
         max_proj, ind = 0, 0
         for i in range(p):
@@ -68,13 +75,24 @@ def _get_nz_values(last, atom_index, atom_coeff, L, nz_index, nz_coeff):
         t = last[t-L]
     return k
 
-@nb.njit(nb.float64(_float64_r(3), _float64_r(3), _int32_r(), _int32_r(3), _float64_r(2)), cache=True, nogil=True)
-def _compute_objective(D, X, nnz, nz_index, nz_coeff):
-    E = 0
-    N, C, _ = X.shape
-    L = D.shape[2]
+@nb.njit(
+    nb.float64(
+        _float64_r(3), _float64_r(3), _int32_r(), _int32_r(3), _float64_r(2),
+        nb.float64, nb.float64
+    ), cache=True, nogil=True
+)
+def _compute_objective(D, X, nnz, nz_index, nz_coeff,
+                       XtX, penalty):
+    E0 = XtX
+    Ereg = 0
+    N = X.shape[0]
+    p, C, L = D.shape
+    D2 = np.zeros(p)
+    for i in range(p):
+        for c in range(C):
+            D2[i] += np.dot(D[i, c], D[i, c])
     for trial in range(N):
-        E += nnz[trial]
+        Ereg += nnz[trial]
         for i in range(nnz[trial]):
             ind = nz_index[trial][i][0]
             t = nz_index[trial][i][1]
@@ -82,8 +100,8 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff):
             proj = 0
             for c in range(C):
                 proj += np.dot(D[ind, c], X[trial, c, t:t+L])
-            E += coeff * (coeff - 2. * proj)
-    return E
+            E0 += coeff * (coeff * D2[ind] - 2. * proj)
+    return .5 * E0 + penalty * Ereg
 
 @nb.njit(nb.int64(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3), _float64_r(3)), cache=True, nogil=True)
 def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
@@ -120,9 +138,12 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
                 max_error_ind = (trial<<32) | max(0, t-L+1)
     return max_error_ind
 
-@nb.njit(nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
-                 _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()),
-         cache=True, nogil=True)
+@nb.njit(
+    nb.void(
+        _int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
+        _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()
+    ), cache=True, nogil=True
+)
 def _compute_z_hat(nnz, nz_index, nz_coeff, X,
                    z_hat, ztz, ztX, nnz_atom):
     z_hat[:] = 0
@@ -147,8 +168,11 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
 class NoOverlapEncoder(BaseZEncoder):
 
     MAX_KMEAN_STEPS = 10
-    #TODO: Adjust the value of this constant
+    # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
+
+    # TODO: The input constraint is ||d|| <= 1 and not ||d|| = 1
+    # Thus, we should normalize d before
 
     def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg):
         super().__init__(X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg)
@@ -218,7 +242,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.total_nnz = self.nnz.sum()
 
     def compute_objective(self, D):
-        return _compute_objective(D, self.X, self.nnz, self.nz_index, self.nz_coeff)
+        return _compute_objective(D, self.X, self.nnz, self.nz_index, self.nz_coeff, self.XtX, self.reg)
 
     def get_cost(self):
         return self.cost
