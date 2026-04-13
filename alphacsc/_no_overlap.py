@@ -1,7 +1,7 @@
 import numpy as np
 import numba as nb
 
-from ._z_encoder import BaseZEncoder
+from ._base_solver import BaseZEncoder, BaseDSolver
 import pyfftw
 
 def _float64_r(d=1):
@@ -164,6 +164,96 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
             ztX[trial] += X[trial, :, t:t+L]
             nnz_atom[ind] += 1
 
+MAX_KMEAN_STEPS = 10
+
+@nb.njit(
+    nb.void(
+        _float64_r(3), _int32_r(), _int32_r(3), _float64_w(), _int32_w(), _float64_w(2), _float64_w(3)
+    ), cache=True, nogil=True
+)
+def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
+    #init
+    N = len(nnz)
+    p, C, L = D.shape
+    S = 0
+    for trial in range(N):
+        x = X[trial]
+        for ind in range(nnz[trial]):
+            t = nz_index[trial, ind, 1]
+            n2seg = 0
+            for c in range(C):
+                n2seg += x[c, t:t+L] @ x[c, t:t+L]
+            init_data[S] = n2seg
+            S += 1
+    y2 = init_data[:S]
+    dist = init_data[S:2*S]
+    closest = updt_data[:S]
+    old_closest = updt_data[S:2*S]
+    dist[:] = y2
+    closest[:] = 0
+    u = np.empty((C, L), dtype=np.float64)
+    for atom in range(p):
+        farthest = dist[:S].argmax()
+        trial = 0
+        while farthest >= nnz[trial]:
+            farthest -= nnz[trial]
+            trial += 1
+        t = nz_index[trial, farthest, 1]
+        u[:] = X[trial, :, t:t+L]
+        u /= np.linalg.norm(u)
+        s = 0
+        for trial in range(N):
+            for ind in range(nnz[trial]):
+                t = nz_index[trial, ind, 1]
+                proj = 0
+                for c in range(C):
+                    proj += u[c] @ X[trial, c, t:t+L]
+                d = y2[s] - proj*proj
+                if d < dist[s]:
+                    dist[s], closest[s] = d, atom
+                s += 1
+    # updates
+    cluster_size = np.empty(p+1, dtype=np.int32)
+    for _ in range(MAX_KMEAN_STEPS):
+        cluster_size[:p] = 0
+        cluster_size[p] = S
+        for s in range(S): cluster_size[closest[s]] += 1
+        for atom in range(1, p): cluster_size[atom] += cluster_size[atom-1]
+        s = 0
+        for trial in range(N):
+            for ind in range(nnz[trial]):
+                t = nz_index[trial, ind, 1]
+                atom = closest[s]
+                cluster_size[atom] -= 1
+                j = cluster_size[atom]
+                for c in range(C):
+                    Y[j, c*L:c*L+L] = X[trial, c, t:t+L]
+                s += 1
+        for atom in range(p):
+            i, j = cluster_size[atom], cluster_size[atom+1]
+            if i == j:
+                D[atom] = 0
+                continue
+            d = np.linalg.svd(Y[i:j], full_matrices=False)[2][0]
+            for c in range(C):
+                D[atom, c] = d[c*L:c*L+L]
+        old_closest, closest = closest, old_closest
+        s = 0
+        for trial in range(N):
+            for ind in range(nnz[trial]):
+                t = nz_index[trial, ind, 1]
+                max_proj, best = 0, 0
+                for atom in range(p):
+                    proj = 0
+                    for c in range(C):
+                        proj += D[atom,c] @ X[trial, c, t:t+L]
+                    proj = np.abs(proj)
+                    if proj < max_proj: continue
+                    max_proj, best = proj, atom
+                closest[s] = best
+                s += 1
+        if np.array_equal(old_closest, closest): break
+
 
 class NoOverlapEncoder(BaseZEncoder):
 
@@ -231,13 +321,13 @@ class NoOverlapEncoder(BaseZEncoder):
                 _dp_updt_fft(self.proj, self.n_times_atom, self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
                                             self.nz_index[trial], self.nz_coeff[trial])
-                self.cost += self.dp[-1]
+                self.cost += .5 * self.dp[-1]
         else:
             for trial in range(self.n_trials):
                 _dp_updt_prod(self.D_hat, self.X[trial], self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
                                             self.nz_index[trial], self.nz_coeff[trial])
-                self.cost += self.dp[-1]
+                self.cost += .5 * self.dp[-1]
         
         self.total_nnz = self.nnz.sum()
 
@@ -252,6 +342,9 @@ class NoOverlapEncoder(BaseZEncoder):
         atom_ind = ind >> 32
         t = ind & ((1<<32)-1)
         return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
+
+    def get_z_sparse(self):
+         return self.nnz, self.nz_index, self.nz_coeff
 
     def _compute_dense_z_hat(self):
         if not self.z_hat_computed:
@@ -277,3 +370,28 @@ class NoOverlapEncoder(BaseZEncoder):
     def get_constants(self):
         self._compute_dense_z_hat()
         return super().get_constants()
+
+
+class NoOverlapSolver(BaseDSolver):
+
+    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+                 uv_constraint, D_init, resample_strategy, window, eps,
+                 max_iter, momentum, random_state, verbose, debug):
+        super().__init__(n_channels, n_atoms, n_times_atom, solver_d,
+                 uv_constraint, D_init, resample_strategy, window, eps,
+                 max_iter, momentum, random_state, verbose, debug)
+        
+        self.D_hat = np.empty((n_atoms, n_channels, n_times_atom))
+
+    def update_D(self, z_encoder):
+        nnz, nz_index, _ = z_encoder.get_z_sparse()
+        S = nnz.sum()
+        if self.Y is None or self.Y.shape[0] < S:
+            N, _, T = z_encoder.X.shape
+            S = min(int(1.125*S), N * (T // self.n_times_atom))
+            self.Y = np.empty((S, self.self.n_channels * self.n_times_atom), dtype=np.float64)
+            self.kmean_init_data = np.empty(2*S, dtype=np.float64)
+            self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
+        kmean(z_encoder.X, nnz, nz_index, self.kmean_data, self.Y, self.D_hat)
+        z_encoder.set_D(self.D_hat)
+        return self.D_hat

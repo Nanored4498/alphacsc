@@ -1,6 +1,6 @@
 import numpy as np
 
-from ._base_z_encoder import BaseZEncoder
+from ._base_solver import BaseZEncoder
 from .utils.dictionary import get_D_shape
 from .update_z_multi import update_z_multi
 from .utils.convolution import construct_X_multi
