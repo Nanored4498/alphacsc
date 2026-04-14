@@ -321,7 +321,8 @@ class NoOverlapEncoder(BaseZEncoder):
         self.nnz_atom = None
         self.z_hat_computed = False
 
-        self.D_mul = 1. / np.linalg.norm(self.D_hat, axis=(1, 2))
+        self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
+        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul!=0)
         self.cost = None
 
     def compute_z(self):
