@@ -40,11 +40,11 @@ def _dp_updt_fft(proj, L, penalty,
 
 
 @nb.njit(
-    nb.void(_float64_r(3), _float64_r(2), nb.float64,
+    nb.void(_float64_r(3), _float64_r(), _float64_r(2), nb.float64,
             _float64_w(), _int32_w(), _int32_w(), _float64_w()
     ), cache=True, nogil=True
 )
-def _dp_updt_prod(D, X, penalty,
+def _dp_updt_prod(D, D_mul, X, penalty,
                   dp, last, atom_index, atom_coeff):
     p, chan, L = D.shape
     penalty *= 2
@@ -53,7 +53,8 @@ def _dp_updt_prod(D, X, penalty,
         for i in range(p):
             proj = 0
             for c in range(chan):
-                proj += np.dot(D[i,c], X[c,t-L:t])
+                proj += D[i,c] @ X[c,t-L:t]
+            proj *= D_mul[i]
             if np.abs(proj) > np.abs(max_proj):
                 max_proj, ind = proj, i
         E = dp[t-L] + penalty - max_proj**2
@@ -65,13 +66,14 @@ def _dp_updt_prod(D, X, penalty,
             dp[t], last[t] = dp[t-1], last[t-1]
 
 
-@nb.njit(nb.int32(_int32_r(), _int32_r(), _float64_r(), nb.int32, _int32_w(2), _float64_w()), cache=True, nogil=True)
-def _get_nz_values(last, atom_index, atom_coeff, L, nz_index, nz_coeff):
+@nb.njit(nb.int32(_float64_r(), _int32_r(), _int32_r(), _float64_r(), nb.int32, _int32_w(2), _float64_w()), cache=True, nogil=True)
+def _get_nz_values(D_mul, last, atom_index, atom_coeff, L, nz_index, nz_coeff):
     k, t = 0, last[-1]
     while t != -1:
-        nz_index[k][0] = atom_index[t]
+        atom = atom_index[t]
+        nz_index[k][0] = atom
         nz_index[k][1] = t-L
-        nz_coeff[k] = atom_coeff[t]
+        nz_coeff[k] = atom_coeff[t] * D_mul[atom]
         k += 1
         t = last[t-L]
     return k
@@ -277,13 +279,8 @@ def update_D(X, nnz, nz_index, nz_coeff, D):
         D[atom] /= np.sqrt(d2)
 
 class NoOverlapEncoder(BaseZEncoder):
-
-    MAX_KMEAN_STEPS = 10
     # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
-
-    # TODO: The input constraint is ||d|| <= 1 and not ||d|| = 1
-    # Thus, we should normalize d before
 
     def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg):
         super().__init__(X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg)
@@ -324,6 +321,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.nnz_atom = None
         self.z_hat_computed = False
 
+        self.D_mul = 1. / np.linalg.norm(self.D_hat, axis=(1, 2))
         self.cost = None
 
     def compute_z(self):
@@ -333,23 +331,24 @@ class NoOverlapEncoder(BaseZEncoder):
         if self.use_fft:
             # TODO: use batches of size 8 instead of size p
             # in order to not allocate too large buffers
-            self.fft_data[...,:self.n_times_atom] = self.D_hat[...,::-1]
+            self.fft_data[...,:self.n_times_atom] = self.D_hat[...,::-1] * self.D_mul[:, None, None]
             self.fft_data[...,self.n_times_atom:] = 0
             self.fft_fwd()
             for trial in range(self.n_trials):
                 np.einsum("ict,ct->it", self.fft_out, self.X_fft[trial], out=self.proj_in)
                 self.fft_bwd()
                 _dp_updt_fft(self.proj, self.n_times_atom, self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
-                self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
-                                            self.nz_index[trial], self.nz_coeff[trial])
+                self.nnz[trial] = _get_nz_values(self.D_mul, self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
+                                                 self.nz_index[trial], self.nz_coeff[trial])
                 self.cost += self.dp[-1]
         else:
             for trial in range(self.n_trials):
-                _dp_updt_prod(self.D_hat, self.X[trial], self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
-                self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
-                                            self.nz_index[trial], self.nz_coeff[trial])
+                _dp_updt_prod(self.D_hat, self.D_mul, self.X[trial], self.reg,
+                              self.dp, self.last, self.atom_index, self.atom_coeff)
+                self.nnz[trial] = _get_nz_values(self.D_mul, self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
+                                                 self.nz_index[trial], self.nz_coeff[trial])
                 self.cost += self.dp[-1]
-        
+
         self.total_nnz = self.nnz.sum()
         self.cost *= .5
 
@@ -390,6 +389,8 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def set_D(self, D):
         self.D_hat = D
+        self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
+        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul!=0)
         self.cost = None
 
     def get_constants(self):

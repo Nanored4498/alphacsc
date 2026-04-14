@@ -437,11 +437,11 @@ def get_iteration_func(eps, stopping_pobj, callback, lmbd_max, name, verbose,
         if ((dz < eps or du < eps) and lmbd_max in ['fixed', 'scaled']):
             if dz < 0 and raise_on_increase:
                 raise RuntimeError(
-                    f"The z update have increased the objective value by {dz}"
+                    f"The z update have increased the objective value by {-dz}"
                 )
             if du < -1e-10 and dz > 1e-12 and raise_on_increase:
                 raise RuntimeError(
-                    f"The d update have increased the objective value by {du}"
+                    f"The d update have increased the objective value by {-du}"
                     f"({dz=})"
                 )
             if dz < eps and du < eps:
@@ -450,7 +450,7 @@ def get_iteration_func(eps, stopping_pobj, callback, lmbd_max, name, verbose,
                 elif verbose > 1:
                     print(
                         f"[{name}] Converged after {iteration + 1} iteration, "
-                        f"(dz, du) = {dz:.3e}, {du:.3e}"
+                        f"(dz, du) = {-dz:.3e}, {-du:.3e}"
                     )
                 return True
 
