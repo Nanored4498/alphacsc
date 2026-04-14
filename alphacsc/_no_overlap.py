@@ -256,35 +256,25 @@ def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
 
 @nb.njit(
     nb.void(
-        _float64_r(3), _int32_r(), _int32_r(3), _float64_w(2), _float64_w(3)
+        _float64_r(3), _int32_r(), _int32_r(3), _float64_r(2), _float64_w(3)
     ), cache=True, nogil=True
 )
-def update_D(X, nnz, nz_index, Y, D):
+def update_D(X, nnz, nz_index, nz_coeff, D):
     N = len(nnz)
-    p, C, L = D.shape
-    cluster_size = np.zeros(p+1, dtype=np.int32)
+    p, _, L = D.shape
+    D[:] = 0
     for trial in range(N):
         for ind in range(nnz[trial]):
             atom = nz_index[trial, ind, 0]
             t = nz_index[trial, ind, 1]
-            cluster_size[atom] += 1
-    for atom in range(p): cluster_size[atom+1] += cluster_size[atom]
-    for trial in range(N):
-        for ind in range(nnz[trial]):
-            atom = nz_index[trial, ind, 0]
-            t = nz_index[trial, ind, 1]
-            cluster_size[atom] -= 1
-            j = cluster_size[atom]
-            for c in range(C):
-                Y[j, c*L:c*L+L] = X[trial, c, t:t+L]
+            coeff = nz_coeff[trial, ind]
+            D[atom] += coeff * X[trial, :, t:t+L]
     for atom in range(p):
-        i, j = cluster_size[atom], cluster_size[atom+1]
-        if i == j:
+        d2 = D[atom].ravel() @ D[atom].ravel()
+        if d2 < 1e-12:
             D[atom] = 0
             continue
-        d = np.linalg.svd(Y[i:j], full_matrices=False)[2][0]
-        for c in range(C):
-            D[atom, c] = d[c*L:c*L+L]
+        D[atom] /= np.sqrt(d2)
 
 class NoOverlapEncoder(BaseZEncoder):
 
@@ -420,18 +410,18 @@ class NoOverlapSolver(BaseDSolver):
         self.Y = None
 
     def update_D(self, z_encoder, reorder=False):
-        nnz, nz_index, _ = z_encoder.get_z_sparse()
-        S = nnz.sum()
-        if self.Y is None or self.Y.shape[0] < S:
-            N, _, T = z_encoder.X.shape
-            S = min(int(1.125*S), N * (T // self.n_times_atom))
-            self.Y = np.empty((S, self.n_channels * self.n_times_atom), dtype=np.float64)
-            self.kmean_init_data = np.empty(2*S, dtype=np.float64)
-            self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
+        nnz, nz_index, nz_coeff = z_encoder.get_z_sparse()
         if reorder:
+            S = nnz.sum()
+            if self.Y is None or self.Y.shape[0] < S:
+                N, _, T = z_encoder.X.shape
+                S = min(int(1.125*S), N * (T // self.n_times_atom))
+                self.Y = np.empty((S, self.n_channels * self.n_times_atom), dtype=np.float64)
+                self.kmean_init_data = np.empty(2*S, dtype=np.float64)
+                self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
             kmean(z_encoder.X, nnz, nz_index, self.kmean_init_data, self.kmean_updt_data, self.Y, self.D_hat)
         else:
-            update_D(z_encoder.X, nnz, nz_index, self.Y, self.D_hat)
+            update_D(z_encoder.X, nnz, nz_index, nz_coeff, self.D_hat)
         z_encoder.set_D(self.D_hat)
         return self.D_hat
 
