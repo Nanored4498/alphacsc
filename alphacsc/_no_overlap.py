@@ -158,13 +158,13 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
     nnz_atom[:] = 0
     for trial in range(len(nnz)):
         for i in range(nnz[trial]):
-            ind = nz_index[trial, i, 0]
+            atom = nz_index[trial, i, 0]
             t = nz_index[trial, i, 1]
             coeff = nz_coeff[trial, i]
-            z_hat[trial, ind, t] = coeff
-            ztz[ind, ind, t0] += coeff**2
-            ztX[trial] += X[trial, :, t:t+L]
-            nnz_atom[ind] += 1
+            z_hat[trial, atom, t] = coeff
+            ztz[atom, atom, t0] += coeff**2
+            ztX[atom] += coeff * X[trial, :, t:t+L]
+            nnz_atom[atom] += 1
 
 MAX_KMEAN_STEPS = 10
 
@@ -370,14 +370,14 @@ class NoOverlapEncoder(BaseZEncoder):
          return self.nnz, self.nz_index, self.nz_coeff
 
     def _compute_dense_z_hat(self):
-        if not self.z_hat_computed:
-            if self.z_hat is None:
-                self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
-                self.ztz = np.zeros((self.n_atoms, self.n_atoms, 2*self.n_times_atom-1), dtype=np.float64)
-                self.ztX = np.empty((self.n_trials, self.n_channels, self.n_times_atom), dtype=np.float64)
-                self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
-            _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X, self.z_hat, self.ztz, self.ztX, self.nnz_atom)
-            self.z_hat_computed = True
+        if self.z_hat_computed: return
+        if self.z_hat is None:
+            self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
+            self.ztz = np.zeros((self.n_atoms, self.n_atoms, 2*self.n_times_atom-1), dtype=np.float64)
+            self.ztX = np.empty((self.n_atoms, self.n_channels, self.n_times_atom), dtype=np.float64)
+            self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
+        _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X, self.z_hat, self.ztz, self.ztX, self.nnz_atom)
+        self.z_hat_computed = True
 
     def get_z_hat(self):
         self._compute_dense_z_hat()
