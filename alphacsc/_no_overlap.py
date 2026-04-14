@@ -131,7 +131,7 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
             diff = 0
             for c in range(C):
                 dc = X[trial, c, t]
-                if t < t1: diff -= atom_coeff * D[atom_ind, c, t-t0]
+                if t < t1: dc -= atom_coeff * D[atom_ind, c, t-t0]
                 diff += dc**2
             patch[tp] = diff
             error += diff
