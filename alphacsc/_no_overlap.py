@@ -1,8 +1,9 @@
 import numpy as np
 import numba as nb
+import pyfftw
 
 from ._base_solver import BaseZEncoder, BaseDSolver
-import pyfftw
+from .update_d_multi import prox_d
 
 def _float64_r(d=1):
     return nb.types.Array(nb.float64, d, 'C', True)
@@ -87,10 +88,9 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff,
     Ereg = 0
     N = X.shape[0]
     p, C, L = D.shape
-    D2 = np.zeros(p)
+    D2 = np.empty(p)
     for i in range(p):
-        for c in range(C):
-            D2[i] += np.dot(D[i, c], D[i, c])
+        D2[i] = D[i].ravel() @ D[i].ravel()
     for trial in range(N):
         Ereg += nnz[trial]
         for i in range(nnz[trial]):
@@ -99,7 +99,7 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff,
             coeff = nz_coeff[trial][i]
             proj = 0
             for c in range(C):
-                proj += np.dot(D[ind, c], X[trial, c, t:t+L])
+                proj += D[ind, c] @ X[trial, c, t:t+L]
             E0 += coeff * (coeff * D2[ind] - 2. * proj)
     return .5 * E0 + penalty * Ereg
 
@@ -254,6 +254,37 @@ def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
                 s += 1
         if np.array_equal(old_closest, closest): break
 
+@nb.njit(
+    nb.void(
+        _float64_r(3), _int32_r(), _int32_r(3), _float64_w(2), _float64_w(3)
+    ), cache=True, nogil=True
+)
+def update_D(X, nnz, nz_index, Y, D):
+    N = len(nnz)
+    p, C, L = D.shape
+    cluster_size = np.zeros(p+1, dtype=np.int32)
+    for trial in range(N):
+        for ind in range(nnz[trial]):
+            atom = nz_index[trial, ind, 0]
+            t = nz_index[trial, ind, 1]
+            cluster_size[atom] += 1
+    for atom in range(p): cluster_size[atom+1] += cluster_size[atom]
+    for trial in range(N):
+        for ind in range(nnz[trial]):
+            atom = nz_index[trial, ind, 0]
+            t = nz_index[trial, ind, 1]
+            cluster_size[atom] -= 1
+            j = cluster_size[atom]
+            for c in range(C):
+                Y[j, c*L:c*L+L] = X[trial, c, t:t+L]
+    for atom in range(p):
+        i, j = cluster_size[atom], cluster_size[atom+1]
+        if i == j:
+            D[atom] = 0
+            continue
+        d = np.linalg.svd(Y[i:j], full_matrices=False)[2][0]
+        for c in range(C):
+            D[atom, c] = d[c*L:c*L+L]
 
 class NoOverlapEncoder(BaseZEncoder):
 
@@ -303,7 +334,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.nnz_atom = None
         self.z_hat_computed = False
 
-        self.cost = self.XtX
+        self.cost = None
 
     def compute_z(self):
         self.cost = self.XtX
@@ -321,20 +352,23 @@ class NoOverlapEncoder(BaseZEncoder):
                 _dp_updt_fft(self.proj, self.n_times_atom, self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
                                             self.nz_index[trial], self.nz_coeff[trial])
-                self.cost += .5 * self.dp[-1]
+                self.cost += self.dp[-1]
         else:
             for trial in range(self.n_trials):
                 _dp_updt_prod(self.D_hat, self.X[trial], self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = _get_nz_values(self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
                                             self.nz_index[trial], self.nz_coeff[trial])
-                self.cost += .5 * self.dp[-1]
+                self.cost += self.dp[-1]
         
         self.total_nnz = self.nnz.sum()
+        self.cost *= .5
 
     def compute_objective(self, D):
         return _compute_objective(D, self.X, self.nnz, self.nz_index, self.nz_coeff, self.XtX, self.reg)
 
     def get_cost(self):
+        if self.cost is None:
+            self.cost = _compute_objective(self.D_hat, self.X, self.nnz, self.nz_index, self.nz_coeff, self.XtX, self.reg)
         return self.cost
 
     def get_max_error_patch(self):
@@ -366,6 +400,7 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def set_D(self, D):
         self.D_hat = D
+        self.cost = None
 
     def get_constants(self):
         self._compute_dense_z_hat()
@@ -382,16 +417,23 @@ class NoOverlapSolver(BaseDSolver):
                  max_iter, momentum, random_state, verbose, debug)
         
         self.D_hat = np.empty((n_atoms, n_channels, n_times_atom))
+        self.Y = None
 
-    def update_D(self, z_encoder):
+    def update_D(self, z_encoder, reorder=False):
         nnz, nz_index, _ = z_encoder.get_z_sparse()
         S = nnz.sum()
         if self.Y is None or self.Y.shape[0] < S:
             N, _, T = z_encoder.X.shape
             S = min(int(1.125*S), N * (T // self.n_times_atom))
-            self.Y = np.empty((S, self.self.n_channels * self.n_times_atom), dtype=np.float64)
+            self.Y = np.empty((S, self.n_channels * self.n_times_atom), dtype=np.float64)
             self.kmean_init_data = np.empty(2*S, dtype=np.float64)
             self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
-        kmean(z_encoder.X, nnz, nz_index, self.kmean_data, self.Y, self.D_hat)
+        if reorder:
+            kmean(z_encoder.X, nnz, nz_index, self.kmean_init_data, self.kmean_updt_data, self.Y, self.D_hat)
+        else:
+            update_D(z_encoder.X, nnz, nz_index, self.Y, self.D_hat)
         z_encoder.set_D(self.D_hat)
         return self.D_hat
+
+    def prox(self, D_hat):
+        return prox_d(D_hat)
