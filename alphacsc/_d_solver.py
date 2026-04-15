@@ -1,7 +1,7 @@
 import numpy as np
 
 from ._base import BaseDSolver
-from ._no_overlap import NoOverlapSolver
+from ._no_overlap import NoOverlapDSolver
 from .loss_and_gradient import gradient_uv, gradient_d
 from .utils.convolution import numpy_convolve_uv
 from .utils.dictionary import UVWindower, SimpleWindower
@@ -147,7 +147,7 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
                 random_state, verbose, debug
             )
         elif solver_d == 'no-overlap':
-            return NoOverlapSolver(
+            return NoOverlapDSolver(
                 n_channels, n_atoms, n_times_atom, solver_d, uv_constraint,
                 D_init, resample_strategy, window, eps, max_iter, momentum,
                 random_state, verbose, debug
