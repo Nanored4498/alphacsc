@@ -257,7 +257,7 @@ for ii, kk in enumerate(plotted_atoms):
         # plotting function
         ax = next(it_axes)
         this_info = info.copy()
-        event_info = dict(event_id = this_event_id, events=events)
+        event_info = dict(event_id=this_event_id, events=events)
         this_info['temp'] = event_info
         plot_evoked_surrogates(correlation, info=this_info, t_lim=t_lim, ax=ax,
                                n_jobs=n_jobs, label='event %d' % this_event_id)

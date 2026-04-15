@@ -15,7 +15,6 @@ atoms from Local Field Potential (LFP) data [1].
 # First, let us fetch the data (~14 MB)
 import os
 from mne.datasets import fetch_dataset
-from mne.utils import get_config
 
 url = ('https://github.com/hitziger/AWL/raw/master/Experiments/data/'
        'LFP_data_contiguous_1250_Hz.mat')

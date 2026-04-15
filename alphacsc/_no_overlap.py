@@ -53,13 +53,13 @@ def _dp_updt_fft(proj, L, penalty,
 )
 def _dp_updt_prod(D, D_mul, X, penalty,
                   dp, last, atom_index, atom_coeff):
-    p, chan, L = D.shape
+    p, C, L = D.shape
     penalty *= 2
     for t in range(L, len(dp)):
         max_proj, ind = 0, 0
         for i in range(p):
             proj = 0
-            for c in range(chan):
+            for c in range(C):
                 proj += D[i, c] @ X[c, t-L:t]
             proj *= D_mul[i]
             if np.abs(proj) > np.abs(max_proj):
@@ -90,32 +90,61 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
         t = last[t-L]
     return k
 
+# TODO: Coudl also compute cost
+# It would allow to group the computation of the cost with
+# the computation of z
+
+@nb.njit(
+    nb.void(
+        _float64_r(3), _float64_r(), _float64_r(3),
+        _int32_w(), _int32_w(3), _float64_w(2)
+    ), cache=True, nogil=True
+)
+def _compute_z_from_T(D, D_mul, X,
+                      nnz, nz_index, nz_coeff):
+    N = X.shape[0]
+    p, C, L = D.shape
+    for trial in range(N):
+        for ind in range(nnz[trial]):
+            t = nz_index[trial][ind][1]
+            max_proj, best = 0, 0
+            for atom in range(p):
+                proj = 0
+                for c in range(C):
+                    proj += D[atom, c] @ X[trial, c, t:t+L]
+                proj *= D_mul[atom]
+                if np.abs(proj) > np.abs(max_proj):
+                    max_proj, best = proj, atom
+            nz_index[trial][ind][0] = best
+            nz_coeff[trial][ind] = max_proj * D_mul[best]
+
 
 @nb.njit(
     nb.float64(
-        _float64_r(3), _float64_r(3), _int32_r(), _int32_r(3), _float64_r(2),
+        _float64_r(3), _float64_r(3), _int32_r(), _int32_r(3),
         nb.float64, nb.float64
     ), cache=True, nogil=True
 )
-def _compute_objective(D, X, nnz, nz_index, nz_coeff,
+def _compute_objective(D, X, nnz, nz_index,
                        XtX, penalty):
     E0 = XtX
     Ereg = 0
     N = X.shape[0]
     p, C, L = D.shape
-    D2 = np.empty(p)
-    for i in range(p):
-        D2[i] = D[i].ravel() @ D[i].ravel()
+    D2 = D.copy()
+    for atom in range(p):
+        D2[atom] /= np.linalg.norm(D2[atom])
     for trial in range(N):
         Ereg += nnz[trial]
-        for i in range(nnz[trial]):
-            ind = nz_index[trial][i][0]
-            t = nz_index[trial][i][1]
-            coeff = nz_coeff[trial][i]
-            proj = 0
-            for c in range(C):
-                proj += D[ind, c] @ X[trial, c, t:t+L]
-            E0 += coeff * (coeff * D2[ind] - 2. * proj)
+        for ind in range(nnz[trial]):
+            t = nz_index[trial][ind][1]
+            max_proj = 0
+            for atom in range(p):
+                proj = 0
+                for c in range(C):
+                    proj += D2[atom, c] @ X[trial, c, t:t+L]
+                max_proj = max(max_proj, np.abs(proj))
+            E0 -= max_proj**2
     return .5 * E0 + penalty * Ereg
 
 
@@ -285,30 +314,6 @@ def kmean(X, nnz, nz_index,
             break
 
 
-@nb.njit(
-    nb.void(_float64_r(3), _int32_r(), _int32_r(3), _float64_r(2),
-            _float64_w(3)),
-    cache=True, nogil=True
-)
-def update_D(X, nnz, nz_index, nz_coeff,
-             D):
-    N = len(nnz)
-    p, _, L = D.shape
-    D[:] = 0
-    for trial in range(N):
-        for ind in range(nnz[trial]):
-            atom = nz_index[trial, ind, 0]
-            t = nz_index[trial, ind, 1]
-            coeff = nz_coeff[trial, ind]
-            D[atom] += coeff * X[trial, :, t:t+L]
-    for atom in range(p):
-        d2 = D[atom].ravel() @ D[atom].ravel()
-        if d2 < 1e-12:
-            D[atom] = 0
-            continue
-        D[atom] /= np.sqrt(d2)
-
-
 class NoOverlapEncoder(BaseZEncoder):
     # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
@@ -371,6 +376,7 @@ class NoOverlapEncoder(BaseZEncoder):
             dtype=np.float64
         )
         self.total_nnz = 0
+        self.z_computed = False
 
         self.z_hat = None
         self.nnz_atom = None
@@ -421,17 +427,17 @@ class NoOverlapEncoder(BaseZEncoder):
 
         self.total_nnz = self.nnz.sum()
         self.cost *= .5
+        self.z_computed = True
 
     def compute_objective(self, D):
-        return _compute_objective(D, self.X, self.nnz,
-                                  self.nz_index, self.nz_coeff,
+        return _compute_objective(D, self.X,
+                                  self.nnz, self.nz_index,
                                   self.XtX, self.reg)
 
     def get_cost(self):
         if self.cost is None:
             self.cost = _compute_objective(self.D_hat, self.X,
-                                           self.nnz,
-                                           self.nz_index, self.nz_coeff,
+                                           self.nnz, self.nz_index,
                                            self.XtX, self.reg)
         return self.cost
 
@@ -441,11 +447,20 @@ class NoOverlapEncoder(BaseZEncoder):
         atom_ind = ind >> 32
         t = ind & ((1 << 32)-1)
         return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
+    
+    def _compute_z(self):
+        if self.z_computed:
+            return
+        _compute_z_from_T(self.D_hat, self.D_mul, self.X,
+                          self.nnz, self.nz_index, self.nz_coeff)
+        self.z_computed = True
 
     def get_z_sparse(self):
+        self._compute_z()
         return self.nnz, self.nz_index, self.nz_coeff
 
     def _compute_dense_z_hat(self):
+        self._compute_z()
         if self.z_hat_computed:
             return
         if self.z_hat is None:
@@ -475,6 +490,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.D_hat = D
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
         np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
+        self.z_computed = False
         self.cost = None
 
     def get_constants(self):
@@ -494,22 +510,19 @@ class NoOverlapDSolver(BaseDSolver):
         self.D_hat = np.empty((n_atoms, n_channels, n_times_atom))
         self.Y = None
 
-    def update_D(self, z_encoder, reorder=False):
-        nnz, nz_index, nz_coeff = z_encoder.get_z_sparse()
-        if reorder:
-            S = nnz.sum()
-            if self.Y is None or self.Y.shape[0] < S:
-                N, _, T = z_encoder.X.shape
-                S = min(int(1.125*S), N * (T // self.n_times_atom))
-                self.Y = np.empty((S, self.n_channels * self.n_times_atom),
-                                  dtype=np.float64)
-                self.kmean_init_data = np.empty(2*S, dtype=np.float64)
-                self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
-            kmean(z_encoder.X, nnz, nz_index,
-                  self.kmean_init_data, self.kmean_updt_data,
-                  self.Y, self.D_hat)
-        else:
-            update_D(z_encoder.X, nnz, nz_index, nz_coeff, self.D_hat)
+    def update_D(self, z_encoder):
+        nnz, nz_index, _ = z_encoder.get_z_sparse()
+        S = nnz.sum()
+        if self.Y is None or self.Y.shape[0] < S:
+            N, _, T = z_encoder.X.shape
+            S = min(int(1.125*S), N * (T // self.n_times_atom))
+            self.Y = np.empty((S, self.n_channels * self.n_times_atom),
+                                dtype=np.float64)
+            self.kmean_init_data = np.empty(2*S, dtype=np.float64)
+            self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
+        kmean(z_encoder.X, nnz, nz_index,
+                self.kmean_init_data, self.kmean_updt_data,
+                self.Y, self.D_hat)
         z_encoder.set_D(self.D_hat)
         return self.D_hat
 
