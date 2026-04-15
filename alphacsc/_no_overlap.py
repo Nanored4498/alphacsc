@@ -482,7 +482,7 @@ class NoOverlapEncoder(BaseZEncoder):
         return super().get_constants()
 
 
-class NoOverlapSolver(BaseDSolver):
+class NoOverlapDSolver(BaseDSolver):
 
     def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
                  uv_constraint, D_init, resample_strategy, window, eps,
