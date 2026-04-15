@@ -94,6 +94,7 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
 # It would allow to group the computation of the cost with
 # the computation of z
 
+
 @nb.njit(
     nb.void(
         _float64_r(3), _float64_r(), _float64_r(3),
@@ -447,7 +448,7 @@ class NoOverlapEncoder(BaseZEncoder):
         atom_ind = ind >> 32
         t = ind & ((1 << 32)-1)
         return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
-    
+
     def _compute_z(self):
         if self.z_computed:
             return
@@ -517,12 +518,12 @@ class NoOverlapDSolver(BaseDSolver):
             N, _, T = z_encoder.X.shape
             S = min(int(1.125*S), N * (T // self.n_times_atom))
             self.Y = np.empty((S, self.n_channels * self.n_times_atom),
-                                dtype=np.float64)
+                              dtype=np.float64)
             self.kmean_init_data = np.empty(2*S, dtype=np.float64)
             self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
         kmean(z_encoder.X, nnz, nz_index,
-                self.kmean_init_data, self.kmean_updt_data,
-                self.Y, self.D_hat)
+              self.kmean_init_data, self.kmean_updt_data,
+              self.Y, self.D_hat)
         z_encoder.set_D(self.D_hat)
         return self.D_hat
 
