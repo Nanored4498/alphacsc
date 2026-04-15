@@ -1,6 +1,6 @@
 import numpy as np
 
-from ._base_solver import BaseZEncoder
+from ._base import BaseZEncoder
 from .utils.dictionary import get_D_shape
 from .update_z_multi import update_z_multi
 from .utils.convolution import construct_X_multi
@@ -38,7 +38,8 @@ def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
         The number of parallel jobs.
     solver : str
         The solver to use for the z update. Options are
-        {{'l_bfgs' (default) | 'lgcd' | 'fista' | 'ista' | 'dicodile' | 'no-overlap'}}.
+        {{'l_bfgs' (default), 'lgcd', 'fista', 'ista', 'dicodile',
+        'no-overlap'}}.
     solver_kwargs : dict
         Additional keyword arguments to pass to update_z_multi.
     reg : float
@@ -80,7 +81,7 @@ def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
         )
 
     elif solver == 'no-overlap':
-        
+
         return NoOverlapEncoder(
             X, D_hat, n_atoms, n_times_atom, n_jobs,
             solver_kwargs, reg

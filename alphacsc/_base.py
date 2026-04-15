@@ -6,6 +6,7 @@ from .utils.dictionary import get_lambda_max, NoWindow
 from .utils.optim import fista
 from .utils.validation import check_random_state
 
+
 class BaseZEncoder:
 
     def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
@@ -179,6 +180,7 @@ class BaseZEncoder:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
+
 
 class BaseDSolver:
     """Base class for a d solver."""

@@ -2,23 +2,30 @@ import numpy as np
 import numba as nb
 import pyfftw
 
-from ._base_solver import BaseZEncoder, BaseDSolver
+from ._base import BaseZEncoder, BaseDSolver
 from .update_d_multi import prox_d
+
 
 def _float64_r(d=1):
     return nb.types.Array(nb.float64, d, 'C', True)
+
+
 def _float64_w(d=1):
     return nb.types.Array(nb.float64, d, 'C', False)
+
+
 def _int32_r(d=1):
     return nb.types.Array(nb.int32, d, 'C', True)
+
+
 def _int32_w(d=1):
     return nb.types.Array(nb.int32, d, 'C', False)
 
+
 @nb.njit(
-    nb.void(
-        _float64_r(2), nb.int32, nb.float64,
-        _float64_w(), _int32_w(), _int32_w(), _float64_w()
-    ), cache=True, nogil=True
+    nb.void(_float64_r(2), nb.int32, nb.float64,
+            _float64_w(), _int32_w(), _int32_w(), _float64_w()),
+    cache=True, nogil=True
 )
 def _dp_updt_fft(proj, L, penalty,
                  dp, last, atom_index, atom_coeff):
@@ -41,8 +48,8 @@ def _dp_updt_fft(proj, L, penalty,
 
 @nb.njit(
     nb.void(_float64_r(3), _float64_r(), _float64_r(2), nb.float64,
-            _float64_w(), _int32_w(), _int32_w(), _float64_w()
-    ), cache=True, nogil=True
+            _float64_w(), _int32_w(), _int32_w(), _float64_w()),
+    cache=True, nogil=True
 )
 def _dp_updt_prod(D, D_mul, X, penalty,
                   dp, last, atom_index, atom_coeff):
@@ -53,7 +60,7 @@ def _dp_updt_prod(D, D_mul, X, penalty,
         for i in range(p):
             proj = 0
             for c in range(chan):
-                proj += D[i,c] @ X[c,t-L:t]
+                proj += D[i, c] @ X[c, t-L:t]
             proj *= D_mul[i]
             if np.abs(proj) > np.abs(max_proj):
                 max_proj, ind = proj, i
@@ -66,8 +73,13 @@ def _dp_updt_prod(D, D_mul, X, penalty,
             dp[t], last[t] = dp[t-1], last[t-1]
 
 
-@nb.njit(nb.int32(_float64_r(), _int32_r(), _int32_r(), _float64_r(), nb.int32, _int32_w(2), _float64_w()), cache=True, nogil=True)
-def _get_nz_values(D_mul, last, atom_index, atom_coeff, L, nz_index, nz_coeff):
+@nb.njit(
+    nb.int32(_float64_r(), _int32_r(), _int32_r(), _float64_r(), nb.int32,
+             _int32_w(2), _float64_w()),
+    cache=True, nogil=True
+)
+def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
+                   nz_index, nz_coeff):
     k, t = 0, last[-1]
     while t != -1:
         atom = atom_index[t]
@@ -77,6 +89,7 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L, nz_index, nz_coeff):
         k += 1
         t = last[t-L]
     return k
+
 
 @nb.njit(
     nb.float64(
@@ -105,8 +118,14 @@ def _compute_objective(D, X, nnz, nz_index, nz_coeff,
             E0 += coeff * (coeff * D2[ind] - 2. * proj)
     return .5 * E0 + penalty * Ereg
 
-@nb.njit(nb.int64(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3), _float64_r(3)), cache=True, nogil=True)
-def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
+
+@nb.njit(
+    nb.int64(_int32_r(), _int32_r(3), _float64_r(2),
+             _float64_r(3), _float64_r(3)),
+    cache=True, nogil=True
+)
+def _find_max_error_patch(nnz, nz_index, nz_coeff,
+                          D, X):
     T = X.shape[-1]
     L = D.shape[-1]
     C = X.shape[1]
@@ -126,25 +145,27 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff, D, X):
                 t0 = t
                 t1 = t+L
                 nz_ind += 1
-            tp = t%L
-            if t >= L: error -= patch[tp]
+            tp = t % L
+            if t >= L:
+                error -= patch[tp]
             diff = 0
             for c in range(C):
                 dc = X[trial, c, t]
-                if t < t1: dc -= atom_coeff * D[atom_ind, c, t-t0]
+                if t < t1:
+                    dc -= atom_coeff * D[atom_ind, c, t-t0]
                 diff += dc**2
             patch[tp] = diff
             error += diff
             if error > max_error:
                 max_error = error
-                max_error_ind = (trial<<32) | max(0, t-L+1)
+                max_error_ind = (trial << 32) | max(0, t-L+1)
     return max_error_ind
 
+
 @nb.njit(
-    nb.void(
-        _int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
-        _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()
-    ), cache=True, nogil=True
+    nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
+            _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()),
+    cache=True, nogil=True
 )
 def _compute_z_hat(nnz, nz_index, nz_coeff, X,
                    z_hat, ztz, ztX, nnz_atom):
@@ -166,15 +187,18 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
             ztX[atom] += coeff * X[trial, :, t:t+L]
             nnz_atom[atom] += 1
 
+
 MAX_KMEAN_STEPS = 10
 
+
 @nb.njit(
-    nb.void(
-        _float64_r(3), _int32_r(), _int32_r(3), _float64_w(), _int32_w(), _float64_w(2), _float64_w(3)
-    ), cache=True, nogil=True
+    nb.void(_float64_r(3), _int32_r(), _int32_r(3),
+            _float64_w(), _int32_w(), _float64_w(2), _float64_w(3)),
+    cache=True, nogil=True
 )
-def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
-    #init
+def kmean(X, nnz, nz_index,
+          init_data, updt_data, Y, D):
+    # init
     N = len(nnz)
     p, C, L = D.shape
     S = 0
@@ -219,8 +243,10 @@ def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
     for _ in range(MAX_KMEAN_STEPS):
         cluster_size[:p] = 0
         cluster_size[p] = S
-        for s in range(S): cluster_size[closest[s]] += 1
-        for atom in range(1, p): cluster_size[atom] += cluster_size[atom-1]
+        for s in range(S):
+            cluster_size[closest[s]] += 1
+        for atom in range(1, p):
+            cluster_size[atom] += cluster_size[atom-1]
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -248,20 +274,24 @@ def kmean(X, nnz, nz_index, init_data, updt_data, Y, D):
                 for atom in range(p):
                     proj = 0
                     for c in range(C):
-                        proj += D[atom,c] @ X[trial, c, t:t+L]
+                        proj += D[atom, c] @ X[trial, c, t:t+L]
                     proj = np.abs(proj)
-                    if proj < max_proj: continue
+                    if proj < max_proj:
+                        continue
                     max_proj, best = proj, atom
                 closest[s] = best
                 s += 1
-        if np.array_equal(old_closest, closest): break
+        if np.array_equal(old_closest, closest):
+            break
+
 
 @nb.njit(
-    nb.void(
-        _float64_r(3), _int32_r(), _int32_r(3), _float64_r(2), _float64_w(3)
-    ), cache=True, nogil=True
+    nb.void(_float64_r(3), _int32_r(), _int32_r(3), _float64_r(2),
+            _float64_w(3)),
+    cache=True, nogil=True
 )
-def update_D(X, nnz, nz_index, nz_coeff, D):
+def update_D(X, nnz, nz_index, nz_coeff,
+             D):
     N = len(nnz)
     p, _, L = D.shape
     D[:] = 0
@@ -278,12 +308,15 @@ def update_D(X, nnz, nz_index, nz_coeff, D):
             continue
         D[atom] /= np.sqrt(d2)
 
+
 class NoOverlapEncoder(BaseZEncoder):
     # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
 
-    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg):
-        super().__init__(X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg)
+    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
+                 solver_kwargs, reg):
+        super().__init__(X, D_hat, n_atoms, n_times_atom, n_jobs,
+                         solver_kwargs, reg)
 
         self.dp = np.empty(self.n_times+1, dtype=np.float64)
         self.last = np.empty(self.n_times+1, dtype=np.int32)
@@ -292,29 +325,51 @@ class NoOverlapEncoder(BaseZEncoder):
         self.dp[:self.n_times_atom] = 0
         self.last[:self.n_times_atom] = -1
 
-        self.use_fft = (self.n_trials + self.n_channels) * self.n_times_atom > self.USE_FFT_THRESHOLD * np.log2(self.n_times)
+        self.use_fft = (
+            (self.n_trials + self.n_channels) * self.n_times_atom
+            >
+            self.USE_FFT_THRESHOLD * np.log2(self.n_times)
+        )
         if self.use_fft:
             T2 = pyfftw.next_fast_len(self.n_times)
             Tc = T2//2+1
             self.X_fft = pyfftw.interfaces.numpy_fft.rfft(self.X, n=T2) / T2
-            self.fft_data = pyfftw.zeros_aligned((self.n_atoms, self.n_channels, 2*Tc), dtype='float64')
-            self.fft_out = np.ndarray((self.n_atoms, self.n_channels, Tc), dtype='complex128', buffer=self.fft_data.data)
-            self.proj = pyfftw.zeros_aligned((self.n_atoms, 2*Tc), dtype='float64')
-            self.proj_in = np.ndarray((self.n_atoms, Tc), dtype='complex128', buffer=self.proj.data)
+            self.fft_data = pyfftw.zeros_aligned(
+                (self.n_atoms, self.n_channels, 2*Tc),
+                dtype='float64'
+            )
+            self.fft_out = np.ndarray(
+                (self.n_atoms, self.n_channels, Tc),
+                dtype='complex128',
+                buffer=self.fft_data.data
+            )
+            self.proj = pyfftw.zeros_aligned((self.n_atoms, 2*Tc),
+                                             dtype='float64')
+            self.proj_in = np.ndarray((self.n_atoms, Tc), dtype='complex128',
+                                      buffer=self.proj.data)
             self.fft_fwd = pyfftw.FFTW(
-                self.fft_data[...,:T2],
+                self.fft_data[..., :T2],
                 self.fft_out,
-                axes=(-1,), direction='FFTW_FORWARD', flags=('FFTW_ESTIMATE',)
+                axes=(-1,),
+                direction='FFTW_FORWARD', flags=('FFTW_ESTIMATE',)
             )
             self.fft_bwd = pyfftw.FFTW(
                 self.proj_in,
-                self.proj[...,:T2],
-                axes=(-1,), direction='FFTW_BACKWARD', flags=('FFTW_ESTIMATE',), normalise_idft=False
+                self.proj[..., :T2],
+                axes=(-1,),
+                direction='FFTW_BACKWARD', flags=('FFTW_ESTIMATE',),
+                normalise_idft=False
             )
-        
+
         self.nnz = np.zeros(self.n_trials, dtype=np.int32)
-        self.nz_index = np.empty((self.n_trials, self.n_times // self.n_times_atom, 2), dtype=np.int32)
-        self.nz_coeff = np.empty((self.n_trials, self.n_times // self.n_times_atom), dtype=np.float64)
+        self.nz_index = np.empty(
+            (self.n_trials, self.n_times // self.n_times_atom, 2),
+            dtype=np.int32
+        )
+        self.nz_coeff = np.empty(
+            (self.n_trials, self.n_times // self.n_times_atom),
+            dtype=np.float64
+        )
         self.total_nnz = 0
 
         self.z_hat = None
@@ -322,7 +377,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.z_hat_computed = False
 
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
-        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul!=0)
+        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
         self.cost = None
 
     def compute_z(self):
@@ -332,52 +387,80 @@ class NoOverlapEncoder(BaseZEncoder):
         if self.use_fft:
             # TODO: use batches of size 8 instead of size p
             # in order to not allocate too large buffers
-            self.fft_data[...,:self.n_times_atom] = self.D_hat[...,::-1] * self.D_mul[:, None, None]
-            self.fft_data[...,self.n_times_atom:] = 0
+            self.fft_data[..., :self.n_times_atom] = (
+                self.D_hat[..., ::-1] * self.D_mul[:, None, None]
+            )
+            self.fft_data[..., self.n_times_atom:] = 0
             self.fft_fwd()
             for trial in range(self.n_trials):
-                np.einsum("ict,ct->it", self.fft_out, self.X_fft[trial], out=self.proj_in)
+                np.einsum("ict,ct->it", self.fft_out, self.X_fft[trial],
+                          out=self.proj_in)
                 self.fft_bwd()
-                _dp_updt_fft(self.proj, self.n_times_atom, self.reg, self.dp, self.last, self.atom_index, self.atom_coeff)
-                self.nnz[trial] = _get_nz_values(self.D_mul, self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
-                                                 self.nz_index[trial], self.nz_coeff[trial])
+                _dp_updt_fft(self.proj, self.n_times_atom, self.reg,
+                             self.dp, self.last,
+                             self.atom_index, self.atom_coeff)
+                self.nnz[trial] = (
+                    _get_nz_values(self.D_mul, self.last,
+                                   self.atom_index, self.atom_coeff,
+                                   self.n_times_atom,
+                                   self.nz_index[trial], self.nz_coeff[trial])
+                )
                 self.cost += self.dp[-1]
         else:
             for trial in range(self.n_trials):
                 _dp_updt_prod(self.D_hat, self.D_mul, self.X[trial], self.reg,
-                              self.dp, self.last, self.atom_index, self.atom_coeff)
-                self.nnz[trial] = _get_nz_values(self.D_mul, self.last, self.atom_index, self.atom_coeff, self.n_times_atom,
-                                                 self.nz_index[trial], self.nz_coeff[trial])
+                              self.dp, self.last,
+                              self.atom_index, self.atom_coeff)
+                self.nnz[trial] = (
+                    _get_nz_values(self.D_mul, self.last,
+                                   self.atom_index, self.atom_coeff,
+                                   self.n_times_atom,
+                                   self.nz_index[trial], self.nz_coeff[trial])
+                )
                 self.cost += self.dp[-1]
 
         self.total_nnz = self.nnz.sum()
         self.cost *= .5
 
     def compute_objective(self, D):
-        return _compute_objective(D, self.X, self.nnz, self.nz_index, self.nz_coeff, self.XtX, self.reg)
+        return _compute_objective(D, self.X, self.nnz,
+                                  self.nz_index, self.nz_coeff,
+                                  self.XtX, self.reg)
 
     def get_cost(self):
         if self.cost is None:
-            self.cost = _compute_objective(self.D_hat, self.X, self.nnz, self.nz_index, self.nz_coeff, self.XtX, self.reg)
+            self.cost = _compute_objective(self.D_hat, self.X,
+                                           self.nnz,
+                                           self.nz_index, self.nz_coeff,
+                                           self.XtX, self.reg)
         return self.cost
 
     def get_max_error_patch(self):
-        ind = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff, self.D_hat, self.X)
+        ind = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff,
+                                    self.D_hat, self.X)
         atom_ind = ind >> 32
-        t = ind & ((1<<32)-1)
+        t = ind & ((1 << 32)-1)
         return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
 
     def get_z_sparse(self):
-         return self.nnz, self.nz_index, self.nz_coeff
+        return self.nnz, self.nz_index, self.nz_coeff
 
     def _compute_dense_z_hat(self):
-        if self.z_hat_computed: return
+        if self.z_hat_computed:
+            return
         if self.z_hat is None:
             self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
-            self.ztz = np.zeros((self.n_atoms, self.n_atoms, 2*self.n_times_atom-1), dtype=np.float64)
-            self.ztX = np.empty((self.n_atoms, self.n_channels, self.n_times_atom), dtype=np.float64)
+            self.ztz = np.zeros(
+                (self.n_atoms, self.n_atoms, 2*self.n_times_atom-1),
+                dtype=np.float64
+            )
+            self.ztX = np.empty(
+                (self.n_atoms, self.n_channels, self.n_times_atom),
+                dtype=np.float64
+            )
             self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
-        _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X, self.z_hat, self.ztz, self.ztX, self.nnz_atom)
+        _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X,
+                       self.z_hat, self.ztz, self.ztX, self.nnz_atom)
         self.z_hat_computed = True
 
     def get_z_hat(self):
@@ -391,7 +474,7 @@ class NoOverlapEncoder(BaseZEncoder):
     def set_D(self, D):
         self.D_hat = D
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
-        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul!=0)
+        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
         self.cost = None
 
     def get_constants(self):
@@ -405,9 +488,9 @@ class NoOverlapSolver(BaseDSolver):
                  uv_constraint, D_init, resample_strategy, window, eps,
                  max_iter, momentum, random_state, verbose, debug):
         super().__init__(n_channels, n_atoms, n_times_atom, solver_d,
-                 uv_constraint, D_init, resample_strategy, window, eps,
-                 max_iter, momentum, random_state, verbose, debug)
-        
+                         uv_constraint, D_init, resample_strategy, window, eps,
+                         max_iter, momentum, random_state, verbose, debug)
+
         self.D_hat = np.empty((n_atoms, n_channels, n_times_atom))
         self.Y = None
 
@@ -418,10 +501,13 @@ class NoOverlapSolver(BaseDSolver):
             if self.Y is None or self.Y.shape[0] < S:
                 N, _, T = z_encoder.X.shape
                 S = min(int(1.125*S), N * (T // self.n_times_atom))
-                self.Y = np.empty((S, self.n_channels * self.n_times_atom), dtype=np.float64)
+                self.Y = np.empty((S, self.n_channels * self.n_times_atom),
+                                  dtype=np.float64)
                 self.kmean_init_data = np.empty(2*S, dtype=np.float64)
                 self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
-            kmean(z_encoder.X, nnz, nz_index, self.kmean_init_data, self.kmean_updt_data, self.Y, self.D_hat)
+            kmean(z_encoder.X, nnz, nz_index,
+                  self.kmean_init_data, self.kmean_updt_data,
+                  self.Y, self.D_hat)
         else:
             update_D(z_encoder.X, nnz, nz_index, nz_coeff, self.D_hat)
         z_encoder.set_D(self.D_hat)

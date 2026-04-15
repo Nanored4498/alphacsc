@@ -1,6 +1,6 @@
 import numpy as np
 
-from ._base_solver import BaseDSolver
+from ._base import BaseDSolver
 from ._no_overlap import NoOverlapSolver
 from .loss_and_gradient import gradient_uv, gradient_d
 from .utils.convolution import numpy_convolve_uv
@@ -55,7 +55,8 @@ def check_solver_and_constraints(rank1, solver_d, uv_constraint):
         if solver_d == 'auto':
             solver_d = 'fista'
         assert solver_d in ['fista', 'no-overlap'], (
-            f"solver_d should be auto, fista, or no-overlap. Got solver_d='{solver_d}'."
+            "solver_d should be 'auto', 'fista', or 'no-overlap'."
+            f"Got solver_d='{solver_d}'."
         )
         assert uv_constraint == 'auto', (
             "If rank1 is False, uv_constraint should be 'auto'."
