@@ -436,6 +436,7 @@ class NoOverlapEncoder(BaseZEncoder):
                                   self.XtX, self.reg)
 
     def get_cost(self):
+        self._compute_z()
         if self.cost is None:
             self.cost = _compute_objective(self.D_hat, self.X,
                                            self.nnz, self.nz_index,
@@ -455,6 +456,8 @@ class NoOverlapEncoder(BaseZEncoder):
         _compute_z_from_T(self.D_hat, self.D_mul, self.X,
                           self.nnz, self.nz_index, self.nz_coeff)
         self.z_computed = True
+        self.cost = None
+        self.z_hat_computed = False
 
     def get_z_sparse(self):
         self._compute_z()
@@ -492,7 +495,6 @@ class NoOverlapEncoder(BaseZEncoder):
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
         np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
         self.z_computed = False
-        self.cost = None
 
     def get_constants(self):
         self._compute_dense_z_hat()
