@@ -90,10 +90,6 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
         t = last[t-L]
     return k
 
-# TODO: Coudl also compute cost
-# It would allow to group the computation of the cost with
-# the computation of z
-
 
 @nb.njit(
     nb.float64(_float64_r(3), _float64_r(), _float64_r(3), _int32_r(),
@@ -116,7 +112,6 @@ def _compute_z_from_T(D, D_mul, X, nnz,
                 proj = 0
                 for c in range(C):
                     proj += D[atom, c] @ X[trial, c, t:t+L]
-                proj *= D_mul[atom]
                 if np.abs(proj) > np.abs(max_proj):
                     max_proj, best = proj, atom
             E0 -= max_proj**2
@@ -225,40 +220,38 @@ MAX_KMEAN_STEPS = 10
 
 
 @nb.njit(
-    nb.void(_float64_r(3), _int32_r(), _int32_r(3),
-            _float64_w(), _int32_w(), _float64_w(2), _float64_w(3)),
+    nb.int32(_float64_r(3), _int32_r(), _int32_r(3), nb.int32, nb.int32,
+             _float64_w(), _int32_w()),
     cache=True, nogil=True
 )
-def kmean(X, nnz, nz_index,
-          init_data, updt_data, Y, D):
-    # init
-    N = len(nnz)
-    p, C, L = D.shape
+def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
+               init_data, updt_data):
+    N, C = X.shape[:2]
     S = 0
     for trial in range(N):
         x = X[trial]
         for ind in range(nnz[trial]):
             t = nz_index[trial, ind, 1]
-            n2seg = 0
+            x_norm2 = 0
             for c in range(C):
-                n2seg += x[c, t:t+L] @ x[c, t:t+L]
-            init_data[S] = n2seg
+                xc = x[c, t:t+n_times_atom]
+                x_norm2 += xc @ xc
+            init_data[S] = x_norm2
             S += 1
     y2 = init_data[:S]
     dist = init_data[S:2*S]
     closest = updt_data[:S]
-    old_closest = updt_data[S:2*S]
     dist[:] = y2
     closest[:] = 0
-    u = np.empty((C, L), dtype=np.float64)
-    for atom in range(p):
-        farthest = dist[:S].argmax()
+    u = np.empty((C, n_times_atom), dtype=np.float64)
+    for atom in range(n_atoms):
+        farthest = dist.argmax()
         trial = 0
         while farthest >= nnz[trial]:
             farthest -= nnz[trial]
             trial += 1
         t = nz_index[trial, farthest, 1]
-        u[:] = X[trial, :, t:t+L]
+        u[:] = X[trial, :, t:t+n_times_atom]
         u /= np.linalg.norm(u)
         s = 0
         for trial in range(N):
@@ -266,20 +259,37 @@ def kmean(X, nnz, nz_index,
                 t = nz_index[trial, ind, 1]
                 proj = 0
                 for c in range(C):
-                    proj += u[c] @ X[trial, c, t:t+L]
+                    proj += u[c] @ X[trial, c, t:t+n_times_atom]
                 d = y2[s] - proj*proj
                 if d < dist[s]:
                     dist[s], closest[s] = d, atom
                 s += 1
-    # updates
-    cluster_size = np.empty(p+1, dtype=np.int32)
+    return S
+
+
+@nb.njit(
+    nb.float64(_float64_r(3), _int32_r(), _int32_r(3), nb.int32,
+               _int32_w(), _float64_w(2), _float64_w(3)),
+    cache=True, nogil=True
+)
+def kmean(X, nnz, nz_index, S,
+          updt_data, Y, D):
+    N = X.shape[0]
+    p, C, L = D.shape
+    if S == 0:  # init closest with nz_index
+        for trial in range(N):
+            for ind in range(nnz[trial]):
+                updt_data[S] = nz_index[trial, ind, 0]
+                S += 1
+    closest = updt_data[:S]
+    old_closest = updt_data[S:2*S]
+    cluster_size = updt_data[2*S:2*S+p+1]
     for _ in range(MAX_KMEAN_STEPS):
-        cluster_size[:p] = 0
-        cluster_size[p] = S
+        cluster_size[:] = 0
         for s in range(S):
             cluster_size[closest[s]] += 1
-        for atom in range(1, p):
-            cluster_size[atom] += cluster_size[atom-1]
+        for atom in range(p):
+            cluster_size[atom+1] += cluster_size[atom]
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -299,6 +309,7 @@ def kmean(X, nnz, nz_index,
             for c in range(C):
                 D[atom, c] = d[c*L:c*L+L]
         old_closest, closest = closest, old_closest
+        E = 0
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -312,10 +323,12 @@ def kmean(X, nnz, nz_index,
                     if proj < max_proj:
                         continue
                     max_proj, best = proj, atom
+                E += max_proj**2
                 closest[s] = best
                 s += 1
         if np.array_equal(old_closest, closest):
             break
+    return E
 
 
 class NoOverlapEncoder(BaseZEncoder):
@@ -385,6 +398,9 @@ class NoOverlapEncoder(BaseZEncoder):
         self.nnz_atom = None
         self.z_hat_computed = False
 
+        self._prox()
+
+    def _prox(self):
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
         np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
         self.cost = None
@@ -440,8 +456,8 @@ class NoOverlapEncoder(BaseZEncoder):
         if self.cost is not None:
             return
         self.cost = _compute_z_from_T(self.D_hat, self.D_mul, self.X, self.nnz,
-                                 self.XtX, self.reg,
-                                 self.nz_index, self.nz_coeff)
+                                      self.XtX, self.reg,
+                                      self.nz_index, self.nz_coeff)
         self.z_hat_computed = False
 
     def get_cost(self):
@@ -489,9 +505,7 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def set_D(self, D):
         self.D_hat = D
-        self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
-        np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
-        self.cost = None
+        self._prox()
 
     def get_constants(self):
         self._compute_dense_z_hat()
@@ -507,7 +521,6 @@ class NoOverlapDSolver(BaseDSolver):
                          uv_constraint, D_init, resample_strategy, window, eps,
                          max_iter, momentum, random_state, verbose, debug)
 
-        self.D_hat = np.empty((n_atoms, n_channels, n_times_atom))
         self.Y = None
 
     def update_D(self, z_encoder):
@@ -519,10 +532,18 @@ class NoOverlapDSolver(BaseDSolver):
             self.Y = np.empty((S, self.n_channels * self.n_times_atom),
                               dtype=np.float64)
             self.kmean_init_data = np.empty(2*S, dtype=np.float64)
-            self.kmean_updt_data = np.empty(2*S, dtype=np.int32)
-        kmean(z_encoder.X, nnz, nz_index,
-              self.kmean_init_data, self.kmean_updt_data,
-              self.Y, self.D_hat)
+            self.kmean_updt_data = np.empty(2*S + self.n_atoms + 1,
+                                            dtype=np.int32)
+            self.D_tmp = np.empty_like(self.D_hat, dtype=np.float64)
+        E0 = kmean(z_encoder.X, nnz, nz_index, 0,
+                   self.kmean_updt_data, self.Y, self.D_tmp)
+        S = kmean_init(z_encoder.X, nnz, nz_index,
+                       self.n_atoms, self.n_times_atom,
+                       self.kmean_init_data, self.kmean_updt_data)
+        E1 = kmean(z_encoder.X, nnz, nz_index, S,
+                   self.kmean_updt_data, self.Y, self.D_hat)
+        if E0 > E1:
+            self.D_tmp, self.D_hat = self.D_hat, self.D_tmp
         z_encoder.set_D(self.D_hat)
         return self.D_hat
 
