@@ -220,8 +220,8 @@ MAX_KMEAN_STEPS = 10
 
 
 @nb.njit(
-    nb.int32(_float64_r(3), _int32_r(), _int32_r(3), nb.int32, nb.int32,
-             _float64_w(), _int32_w()),
+    nb.void(_float64_r(3), _int32_r(), _int32_r(3), nb.int32, nb.int32,
+            _float64_w(), _int32_w()),
     cache=True, nogil=True
 )
 def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
@@ -264,7 +264,6 @@ def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
                 if d < dist[s]:
                     dist[s], closest[s] = d, atom
                 s += 1
-    return S
 
 
 @nb.njit(
@@ -528,18 +527,17 @@ class NoOverlapDSolver(BaseDSolver):
         S = nnz.sum()
         if self.Y is None or self.Y.shape[0] < S:
             N, _, T = z_encoder.X.shape
-            S = min(int(1.125*S), N * (T // self.n_times_atom))
-            self.Y = np.empty((S, self.n_channels * self.n_times_atom),
+            S2 = min(int(1.125*S), N * (T // self.n_times_atom))
+            self.Y = np.empty((S2, self.n_channels * self.n_times_atom),
                               dtype=np.float64)
-            self.kmean_init_data = np.empty(2*S, dtype=np.float64)
-            self.kmean_updt_data = np.empty(2*S + self.n_atoms + 1,
+            self.kmean_init_data = np.empty(2*S2, dtype=np.float64)
+            self.kmean_updt_data = np.empty(2*S2 + self.n_atoms + 1,
                                             dtype=np.int32)
             self.D_tmp = np.empty_like(self.D_hat, dtype=np.float64)
         E0 = kmean(z_encoder.X, nnz, nz_index, 0,
                    self.kmean_updt_data, self.Y, self.D_tmp)
-        S = kmean_init(z_encoder.X, nnz, nz_index,
-                       self.n_atoms, self.n_times_atom,
-                       self.kmean_init_data, self.kmean_updt_data)
+        kmean_init(z_encoder.X, nnz, nz_index, self.n_atoms, self.n_times_atom,
+                   self.kmean_init_data, self.kmean_updt_data)
         E1 = kmean(z_encoder.X, nnz, nz_index, S,
                    self.kmean_updt_data, self.Y, self.D_hat)
         if E0 > E1:
