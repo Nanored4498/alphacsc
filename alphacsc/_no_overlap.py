@@ -96,16 +96,19 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
 
 
 @nb.njit(
-    nb.void(
-        _float64_r(3), _float64_r(), _float64_r(3),
-        _int32_w(), _int32_w(3), _float64_w(2)
-    ), cache=True, nogil=True
+    nb.float64(_float64_r(3), _float64_r(), _float64_r(3), _int32_r(),
+               nb.float64, nb.float64,
+               _int32_w(3), _float64_w(2)),
+    cache=True, nogil=True
 )
-def _compute_z_from_T(D, D_mul, X,
-                      nnz, nz_index, nz_coeff):
+def _compute_z_from_T(D, D_mul, X, nnz,
+                      XtX, penalty,
+                      nz_index, nz_coeff):
+    E0, Ereg = XtX, 0
     N = X.shape[0]
     p, C, L = D.shape
     for trial in range(N):
+        Ereg += nnz[trial]
         for ind in range(nnz[trial]):
             t = nz_index[trial][ind][1]
             max_proj, best = 0, 0
@@ -116,20 +119,20 @@ def _compute_z_from_T(D, D_mul, X,
                 proj *= D_mul[atom]
                 if np.abs(proj) > np.abs(max_proj):
                     max_proj, best = proj, atom
+            E0 -= max_proj**2
             nz_index[trial][ind][0] = best
             nz_coeff[trial][ind] = max_proj * D_mul[best]
+    return .5 * E0 + penalty * Ereg
 
 
 @nb.njit(
-    nb.float64(
-        _float64_r(3), _float64_r(3), _int32_r(), _int32_r(3),
-        nb.float64, nb.float64
-    ), cache=True, nogil=True
+    nb.float64(_float64_r(3), _float64_r(3), _int32_r(), _int32_r(3),
+               nb.float64, nb.float64),
+    cache=True, nogil=True
 )
 def _compute_objective(D, X, nnz, nz_index,
                        XtX, penalty):
-    E0 = XtX
-    Ereg = 0
+    E0, Ereg = XtX, 0
     N = X.shape[0]
     p, C, L = D.shape
     D2 = D.copy()
@@ -377,7 +380,6 @@ class NoOverlapEncoder(BaseZEncoder):
             dtype=np.float64
         )
         self.total_nnz = 0
-        self.z_computed = False
 
         self.z_hat = None
         self.nnz_atom = None
@@ -428,43 +430,38 @@ class NoOverlapEncoder(BaseZEncoder):
 
         self.total_nnz = self.nnz.sum()
         self.cost *= .5
-        self.z_computed = True
 
     def compute_objective(self, D):
         return _compute_objective(D, self.X,
                                   self.nnz, self.nz_index,
                                   self.XtX, self.reg)
 
+    def _update_z(self):
+        if self.cost is not None:
+            return
+        self.cost = _compute_z_from_T(self.D_hat, self.D_mul, self.X, self.nnz,
+                                 self.XtX, self.reg,
+                                 self.nz_index, self.nz_coeff)
+        self.z_hat_computed = False
+
     def get_cost(self):
-        self._compute_z()
-        if self.cost is None:
-            self.cost = _compute_objective(self.D_hat, self.X,
-                                           self.nnz, self.nz_index,
-                                           self.XtX, self.reg)
+        self._update_z()
         return self.cost
 
     def get_max_error_patch(self):
+        self._update_z()
         ind = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff,
                                     self.D_hat, self.X)
         atom_ind = ind >> 32
         t = ind & ((1 << 32)-1)
         return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
 
-    def _compute_z(self):
-        if self.z_computed:
-            return
-        _compute_z_from_T(self.D_hat, self.D_mul, self.X,
-                          self.nnz, self.nz_index, self.nz_coeff)
-        self.z_computed = True
-        self.cost = None
-        self.z_hat_computed = False
-
     def get_z_sparse(self):
-        self._compute_z()
+        self._update_z()
         return self.nnz, self.nz_index, self.nz_coeff
 
     def _compute_dense_z_hat(self):
-        self._compute_z()
+        self._update_z()
         if self.z_hat_computed:
             return
         if self.z_hat is None:
@@ -494,7 +491,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.D_hat = D
         self.D_mul = np.linalg.norm(self.D_hat, axis=(1, 2))
         np.divide(1., self.D_mul, out=self.D_mul, where=self.D_mul != 0)
-        self.z_computed = False
+        self.cost = None
 
     def get_constants(self):
         self._compute_dense_z_hat()

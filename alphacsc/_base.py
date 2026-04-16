@@ -345,6 +345,9 @@ class BaseDSolver:
             The atoms to learn from the data.
         """
         if self.resample_strategy == 'greedy':
+            # TODO: This function is sometimes called with z_nnz[k0] = 1
+            # In that case, the max_error_subwindow should be taken after
+            # removing the atom k0 in the reconstruction
             self.D_hat[k0] = self.get_max_error_subwindow(z_encoder)[0]
         elif self.resample_strategy in ['chunk', 'random']:
             from .init_dict import init_dictionary as init_dict
