@@ -50,7 +50,8 @@ DOC_FMT = """{short_desc}
         Stopping criterion. If the cost descent after a uv and a z update is
         smaller than eps, return.
     reg : float
-        The regularization parameter.
+        The regularization parameter such that :math:`\\lambda = \\text{{reg}} \\cdot \\sigma`,
+        with :math:`\\sigma` the standard deviation of the input signal X.
     lmbd_max : 'fixed' | 'scaled' | 'per_atom' | 'shared'
         If not fixed, adapt the regularization rate as a ratio of lambda_max:
 
@@ -69,7 +70,7 @@ DOC_FMT = """{short_desc}
 
     solver_z : str
         The solver to use for the z update. Options are
-        {{'l_bfgs' (default) | 'lgcd', 'fista', 'ista'}}.
+        {{'l_bfgs' (default) | 'lgcd', 'fista', 'ista', 'no-overlap'}}.
     solver_z_kwargs : dict
         Additional keyword arguments to pass to update_z_multi.
     unbiased_z_hat : boolean
@@ -81,7 +82,8 @@ DOC_FMT = """{short_desc}
 
     solver_d : str (default: 'auto')
         The solver to use for the d update. Options are:
-        {{'alternate', 'alternate_adaptive', 'joint', 'fista', 'auto'}}
+        {{'alternate', 'alternate_adaptive', 'joint', 'fista', 'no-overlap',
+        'auto'}}
         'auto' amounts to 'fista' when :code:`rank1=False` and
         'alternate_adaptive' for :code:`rank1=True`.
     solver_d_kwargs : dict
@@ -115,7 +117,7 @@ DEFAULT = dict(
     .. math::
         \min_{D, Z} \sum_{n=1}^N
             \frac{1}{2} \|X^{(n)} - \sum_{k=1}^K D_k*Z^{(n)}_k\|_2^2
-            + \lambda\|Z^{(n)}\|_2
+            + \lambda\|Z^{(n)}\|_1
 
     for `K = n_atoms` and `N = n_samples`.
     """,
@@ -138,7 +140,6 @@ class ConvolutionalDictionaryLearning(TransformerMixin):
                  reg=0.1, lmbd_max='fixed', eps=1e-10,
                  D_init=None,
                  algorithm='batch', algorithm_params={},
-                 alpha=.8, batch_size=1, batch_selection='random',
                  unbiased_z_hat=False, verbose=10, callback=None,
                  random_state=None, name="_CDL", raise_on_increase=True,
                  sort_atoms=False):
