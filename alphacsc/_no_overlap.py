@@ -148,7 +148,7 @@ def _compute_z_from_T(D, D_mul, X, nnz,
     Notes
     -----
     Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
-        where nnz is the number of non zero entries in z.
+        where nnz is the number of non zero entries in z/T.
     """
     E0, Ereg = XtX, 0
     N = X.shape[0]
@@ -177,6 +177,21 @@ def _compute_z_from_T(D, D_mul, X, nnz,
 )
 def _compute_objective(D, X, nnz, nz_index,
                        XtX, penalty):
+    """
+    Computes the objective E for a gien dictionary D and
+    a temporal support T stored in nz_index.
+    To do so, the best z matching the temporal support T is computed.
+
+    Returns
+    -------
+    E : float
+        The energy/objective associated to the z value computed.
+
+    Notes
+    -----
+    Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
+        where nnz is the number of non zero entries in z/T.
+    """
     E0, Ereg = XtX, 0
     N = X.shape[0]
     p, C, L = D.shape
@@ -204,28 +219,60 @@ def _compute_objective(D, X, nnz, nz_index,
 )
 def _find_max_error_patch(nnz, nz_index, nz_coeff,
                           D, X):
+    """
+    Find the patch with the maximum residual error.
+
+    Returns
+    -------
+    max_error_ind : int64
+        An integer such that:
+        * (max_error_ind >> 32) is the trial index in which the patch
+            with max error is found.
+        * (max_error_ind & 0xffffffff) is the start time of the patch
+            with max error.
+
+    Notes
+    -----
+    Time Complexity: O(n_trials * n_channels * n_times)
+    """
+
     T = X.shape[-1]
-    L = D.shape[-1]
-    C = X.shape[1]
+    C, L = D.shape[-2:]
+    # patch is a circular array storing the last L=n_times_atom
+    # entries of the residual (X - X_hat)
     patch = np.zeros(L, dtype=np.float64)
-    max_error = 0.
-    max_error_ind = 0
+    max_error = 0.  # The max error seen for a patch
+    max_error_ind = 0  # The returned value of this function
+
     for trial in range(len(nnz)):
-        nz_ind = 0
-        atom_ind = 0
-        atom_coeff = 0.
+
+        nz_ind = 0  # The index of the next non-zero z entry to be seen
+        atom_ind = 0  # The atom index of the last non-zero z entry seen
+        atom_coeff = 0.  # The coefficient of the last non-zero z entry seen
+        # t0 and t1 are the start and end time
+        # of the last non-zero z entry seen
         t0, t1 = 0, 0
-        error = 0.
+        error = 0.  # The error associated to the current patch
+
         for t in range(T):
+
+            # If z has a non-zero entry at time t, we read it
             if nz_ind < nnz[trial] and nz_index[trial, nz_ind, 1] == t:
                 atom_ind = nz_index[trial, nz_ind, 0]
                 atom_coeff = nz_coeff[trial, nz_ind]
                 t0 = t
                 t1 = t+L
                 nz_ind += 1
+
+            # Index of the current time in the circular array
             tp = t % L
+
+            # We remove the error associated to time t-L
+            # which is non longer part of the current patch
             if t >= L:
                 error -= patch[tp]
+
+            # We compute the error associated to time t
             diff = 0
             for c in range(C):
                 dc = X[trial, c, t]
@@ -234,9 +281,12 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
                 diff += dc**2
             patch[tp] = diff
             error += diff
+
+            # We update the max error
             if error > max_error:
                 max_error = error
                 max_error_ind = (trial << 32) | max(0, t-L+1)
+
     return max_error_ind
 
 
@@ -247,6 +297,16 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
 )
 def _compute_z_hat(nnz, nz_index, nz_coeff, X,
                    z_hat, ztz, ztX, nnz_atom):
+    """
+    Computes the dense representation of z_hat from its spartse representation.
+    Also computes ztz, ztX and nnz_atom which is the number of non-zero entries
+    of z per atom.
+
+    Notes
+    -----
+    Time Complexity: O(nnz * n_channels * n_times_atom),
+        where nnz is the number of non zero entries in z/T.
+    """
     z_hat[:] = 0
     p = ztz.shape[0]
     t0 = ztz.shape[2]//2
