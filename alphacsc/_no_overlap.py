@@ -5,6 +5,10 @@ import pyfftw
 from ._base import BaseZEncoder, BaseDSolver
 from .update_d_multi import prox_d
 
+# =================================
+# Helping functions for numba types
+# =================================
+
 
 def _float64_r(d=1):
     return nb.types.Array(nb.float64, d, 'C', True)
@@ -21,23 +25,35 @@ def _int32_r(d=1):
 def _int32_w(d=1):
     return nb.types.Array(nb.int32, d, 'C', False)
 
+# ==============================
+# JIT functions used by Zencoder
+# ==============================
+
 
 @nb.njit(
     nb.void(_float64_r(2), nb.int32, nb.float64,
             _float64_w(), _int32_w(), _int32_w(), _float64_w()),
     cache=True, nogil=True
 )
-def _dp_updt_fft(proj, L, penalty,
-                 dp, last, atom_index, atom_coeff):
+def _dp_fft(proj, n_times_atom, reg,
+            dp, last, atom_index, atom_coeff):
+    """
+    Computes z for one signal X, using proj, an array such that
+    proj[i, t] is the dot product between D[i] and X[:, t-n_times_atom+1:t+1]
+
+    Notes
+    -----
+    Time Complexity: O(n_times * n_atoms).
+    """
     p = proj.shape[0]
-    penalty *= 2
-    for t in range(L, len(dp)):
+    reg *= 2  # We scale the energy by 2 to avoid halving the l2 objective
+    for t in range(n_times_atom, len(dp)):
         max_proj, ind = 0, 0
         for i in range(p):
             x = np.abs(proj[i, t-1])
             if x > max_proj:
                 max_proj, ind = x, i
-        E = dp[t-L] + penalty - max_proj**2
+        E = dp[t-n_times_atom] + reg - max_proj**2
         if E < dp[t-1]:
             dp[t], last[t] = E, t
             atom_index[t] = ind
@@ -51,10 +67,17 @@ def _dp_updt_fft(proj, L, penalty,
             _float64_w(), _int32_w(), _int32_w(), _float64_w()),
     cache=True, nogil=True
 )
-def _dp_updt_prod(D, D_mul, X, penalty,
-                  dp, last, atom_index, atom_coeff):
+def _dp_prod(D, D_mul, X, reg,
+             dp, last, atom_index, atom_coeff):
+    """
+    Computes z for one signal X, using D, the dictionary
+
+    Notes
+    -----
+    Time Complexity: O(n_times * n_atoms * n_channels * n_times_atom).
+    """
     p, C, L = D.shape
-    penalty *= 2
+    reg *= 2  # We scale the energy by 2 to avoid halving the l2 objective
     for t in range(L, len(dp)):
         max_proj, ind = 0, 0
         for i in range(p):
@@ -64,7 +87,7 @@ def _dp_updt_prod(D, D_mul, X, penalty,
             proj *= D_mul[i]
             if np.abs(proj) > np.abs(max_proj):
                 max_proj, ind = proj, i
-        E = dp[t-L] + penalty - max_proj**2
+        E = dp[t-L] + reg - max_proj**2
         if E < dp[t-1]:
             dp[t], last[t] = E, t
             atom_index[t] = ind
@@ -78,17 +101,30 @@ def _dp_updt_prod(D, D_mul, X, penalty,
              _int32_w(2), _float64_w()),
     cache=True, nogil=True
 )
-def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
+def _get_nz_values(D_mul, last, atom_index, atom_coeff, n_times_atom,
                    nz_index, nz_coeff):
-    k, t = 0, last[-1]
+    """
+    Retrieve z as a sparse representation from the array `last`,
+    obtained via dynamic programming (DP).
+
+    Returns
+    -------
+    nnz : int
+        The number of non zero entries in z.
+
+    Notes
+    -----
+    Time Complexity: O(nnz), where nnz is the number of non zero entries in z.
+    """
+    nnz, t = 0, last[-1]
     while t != -1:
         atom = atom_index[t]
-        nz_index[k][0] = atom
-        nz_index[k][1] = t-L
-        nz_coeff[k] = atom_coeff[t] * D_mul[atom]
-        k += 1
-        t = last[t-L]
-    return k
+        nz_index[nnz][0] = atom
+        nz_index[nnz][1] = t-n_times_atom
+        nz_coeff[nnz] = atom_coeff[t] * D_mul[atom]
+        nnz += 1
+        t = last[t-n_times_atom]
+    return nnz
 
 
 @nb.njit(
@@ -100,6 +136,20 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, L,
 def _compute_z_from_T(D, D_mul, X, nnz,
                       XtX, penalty,
                       nz_index, nz_coeff):
+    """
+    Computes the best z value for a gien dictionary D and
+    a temporal support T stored in nz_index
+
+    Returns
+    -------
+    E : float
+        The energy/objective associated to the z value computed.
+
+    Notes
+    -----
+    Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
+        where nnz is the number of non zero entries in z.
+    """
     E0, Ereg = XtX, 0
     N = X.shape[0]
     p, C, L = D.shape
@@ -216,6 +266,10 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
             nnz_atom[atom] += 1
 
 
+# =============================
+# JIT functions used by Dsolver
+# =============================
+
 MAX_KMEAN_STEPS = 10
 
 
@@ -329,8 +383,18 @@ def kmean(X, nnz, nz_index, S,
             break
     return E
 
+# ==============================================
+# ZEncoder for L0 regularization without overlap
+# ==============================================
+
 
 class NoOverlapEncoder(BaseZEncoder):
+    """
+    Zencoder for CDL using L0 regularization without overlap between atoms.
+    If z_hat has non zero entries at times t1 and t2,
+    then abs(t2 - t1) >= n_times_atom.
+    """
+
     # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
 
@@ -420,9 +484,8 @@ class NoOverlapEncoder(BaseZEncoder):
                 np.einsum("ict,ct->it", self.fft_out, self.X_fft[trial],
                           out=self.proj_in)
                 self.fft_bwd()
-                _dp_updt_fft(self.proj, self.n_times_atom, self.reg,
-                             self.dp, self.last,
-                             self.atom_index, self.atom_coeff)
+                _dp_fft(self.proj, self.n_times_atom, self.reg,
+                        self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = (
                     _get_nz_values(self.D_mul, self.last,
                                    self.atom_index, self.atom_coeff,
@@ -432,9 +495,8 @@ class NoOverlapEncoder(BaseZEncoder):
                 self.cost += self.dp[-1]
         else:
             for trial in range(self.n_trials):
-                _dp_updt_prod(self.D_hat, self.D_mul, self.X[trial], self.reg,
-                              self.dp, self.last,
-                              self.atom_index, self.atom_coeff)
+                _dp_prod(self.D_hat, self.D_mul, self.X[trial], self.reg,
+                         self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = (
                     _get_nz_values(self.D_mul, self.last,
                                    self.atom_index, self.atom_coeff,
@@ -509,6 +571,10 @@ class NoOverlapEncoder(BaseZEncoder):
     def get_constants(self):
         self._compute_dense_z_hat()
         return super().get_constants()
+
+# =============================================
+# Dsolver for L0 regularization without overlap
+# =============================================
 
 
 class NoOverlapDSolver(BaseDSolver):
