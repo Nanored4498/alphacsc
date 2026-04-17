@@ -25,6 +25,7 @@ def _int32_r(d=1):
 def _int32_w(d=1):
     return nb.types.Array(nb.int32, d, 'C', False)
 
+
 # ==============================
 # JIT functions used by Zencoder
 # ==============================
@@ -148,7 +149,7 @@ def _compute_z_from_T(D, D_mul, X, nnz,
     Notes
     -----
     Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
-        where nnz is the number of non zero entries in z/T.
+        where nnz is the number of non zero entries in z.
     """
     E0, Ereg = XtX, 0
     N = X.shape[0]
@@ -190,7 +191,7 @@ def _compute_objective(D, X, nnz, nz_index,
     Notes
     -----
     Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
-        where nnz is the number of non zero entries in z/T.
+        where nnz is the number of non zero entries in z.
     """
     E0, Ereg = XtX, 0
     N = X.shape[0]
@@ -305,7 +306,7 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
     Notes
     -----
     Time Complexity: O(nnz * n_channels * n_times_atom),
-        where nnz is the number of non zero entries in z/T.
+        where nnz is the number of non zero entries in z.
     """
     z_hat[:] = 0
     p = ztz.shape[0]
@@ -340,33 +341,67 @@ MAX_KMEAN_STEPS = 10
 )
 def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
                init_data, updt_data):
+    """
+    Computes a partition of the temporal support T in n_atoms parts.
+    The algorithm is inspired by k-mean++.
+
+    Notes
+    -----
+    The algorithm creates a set of n_atoms normalized patches U.
+    U is initialized with u_1, the patch of length n_times_atom starting
+    at a time in the temporal support T and having the highest l2 norm.
+    Then, new patches u_i are added maximizing
+
+    .. math::
+        \\| x \\|^2 - \\max_{j < i} (u_j^T x)^2
+
+    for x, a patch of length n_times_atom
+    starting at a time in the temporal support T.
+
+    Then, the partition is obtained by associating a time t in T to the
+    parition index given by:
+
+    .. math::
+        \\argmax_i | u_i^T x[t, t:t+\\text{n_times_atom}] |
+
+    Time Complexity: O(nnz * n_atoms * n_channels * n_times_atom),
+        where nnz is the number of non zero entries in z.
+    """
     N, C = X.shape[:2]
-    S = 0
+    S = 0  # Index over the non-zero entries of z
+
+    # Computes the squared l2 norm of all patches starting
+    # at a non-zero entry of z.
     for trial in range(N):
-        x = X[trial]
         for ind in range(nnz[trial]):
             t = nz_index[trial, ind, 1]
             x_norm2 = 0
             for c in range(C):
-                xc = x[c, t:t+n_times_atom]
+                xc = X[trial, c, t:t+n_times_atom]
                 x_norm2 += xc @ xc
             init_data[S] = x_norm2
             S += 1
-    y2 = init_data[:S]
-    dist = init_data[S:2*S]
-    closest = updt_data[:S]
-    dist[:] = y2
-    closest[:] = 0
+
+    x2 = init_data[:S]  # squared l2 norm of patches
+    dist = init_data[S:2*S]  # squared distance of patches to the set U
+    closest = updt_data[:S]  # squared distance of patches to the set U
+    dist[:] = x2  # squared distance of patches to the set U
+    closest[:] = 0  # partition index associated to each patch
+    # u is a temporary array containing a normalized patch added to U
     u = np.empty((C, n_times_atom), dtype=np.float64)
+
     for atom in range(n_atoms):
+        # Find the farthest patch from U
         farthest = dist.argmax()
-        trial = 0
+        trial = 0  # Index of the trial containing this patch
         while farthest >= nnz[trial]:
             farthest -= nnz[trial]
             trial += 1
-        t = nz_index[trial, farthest, 1]
+        t = nz_index[trial, farthest, 1]  # Start time of the patch
         u[:] = X[trial, :, t:t+n_times_atom]
         u /= np.linalg.norm(u)
+
+        # Updates dist and closest arrays
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -374,7 +409,7 @@ def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
                 proj = 0
                 for c in range(C):
                     proj += u[c] @ X[trial, c, t:t+n_times_atom]
-                d = y2[s] - proj*proj
+                d = x2[s] - proj*proj
                 if d < dist[s]:
                     dist[s], closest[s] = d, atom
                 s += 1
@@ -442,6 +477,7 @@ def kmean(X, nnz, nz_index, S,
         if np.array_equal(old_closest, closest):
             break
     return E
+
 
 # ==============================================
 # ZEncoder for L0 regularization without overlap
@@ -631,6 +667,7 @@ class NoOverlapEncoder(BaseZEncoder):
     def get_constants(self):
         self._compute_dense_z_hat()
         return super().get_constants()
+
 
 # =============================================
 # Dsolver for L0 regularization without overlap
