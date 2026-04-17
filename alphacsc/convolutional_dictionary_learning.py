@@ -50,7 +50,8 @@ DOC_FMT = """{short_desc}
         Stopping criterion. If the cost descent after a uv and a z update is
         smaller than eps, return.
     reg : float
-        The regularization parameter such that :math:`\\lambda = \\text{{reg}} \\cdot \\sigma`,
+        The regularization parameter such that
+        :math:`\\lambda = \\text{{reg}} \\cdot \\sigma`,
         with :math:`\\sigma` the standard deviation of the input signal X.
     lmbd_max : 'fixed' | 'scaled' | 'per_atom' | 'shared'
         If not fixed, adapt the regularization rate as a ratio of lambda_max:

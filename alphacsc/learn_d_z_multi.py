@@ -89,14 +89,14 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
             iteration.
     solver_z : str
         The solver to use for the z update. Options are
-        'l-bfgs' (default) | 'lgcd' |
+        'l-bfgs' (default) | 'lgcd' | 'no-overlap' |
         'dicodile' (distributed LGCD, experimental)
     solver_z_kwargs : dict
         Additional keyword arguments to pass to update_z_multi
     solver_d : str
         The solver to use for the d update. If rank1 is False, only option is
-        'fista'. Else, options are 'alternate', 'alternate_adaptive' (default)
-        or 'joint'.
+        'fista'. Else, options are 'alternate', 'alternate_adaptive' (default),
+        'joint' or 'no-overlap'.
     solver_d_kwargs : dict
         Additional keyword arguments to provide to update_d
     D_init : str or array, shape (n_atoms, n_channels + n_times_atoms) or \
@@ -239,6 +239,8 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
         # Rescale the solution to match the given scale of the problem
         z_hat *= std_X
         reg = z_encoder.reg * std_X
+        if solver_z == 'no-overlap':
+            reg *= std_X
 
     return pobj, times, D_hat, z_hat, reg
 
