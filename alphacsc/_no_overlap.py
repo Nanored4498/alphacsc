@@ -384,9 +384,9 @@ def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
 
     x2 = init_data[:S]  # squared l2 norm of patches
     dist = init_data[S:2*S]  # squared distance of patches to the set U
-    closest = updt_data[:S]  # squared distance of patches to the set U
-    dist[:] = x2  # squared distance of patches to the set U
-    closest[:] = 0  # partition index associated to each patch
+    closest = updt_data[:S]  # partition index associated to each patch
+    dist[:] = x2
+    closest[:] = 0
     # u is a temporary array containing a normalized patch added to U
     u = np.empty((C, n_times_atom), dtype=np.float64)
 
@@ -422,22 +422,52 @@ def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
 )
 def kmean(X, nnz, nz_index, S,
           updt_data, Y, D):
+    """
+    Computes a partition of the temporal support T in len(D) parts.
+    The algorithm is inspired by k-mean. If a partition is already stored
+    in updt_data, S should be the size of the temporal support. Otherwise,
+    S should be 0, and updt_data is initialized with a the parition given
+    by z in nz_index.
+
+    Returns
+    -------
+    E : float
+        The energy/objective associated to the dictionary D computed.
+
+    Notes
+    -----
+    The algorithm creates a dictionary by alternatively computing the best
+    dictionary D for a given partition of the temporal support T and then,
+    updatating the partition such that each patch starting at a non-zero
+    entry of z, is associated to the row of D with the highest dot product.
+
+    Time Complexity: O(nnz * n_channels * n_times_atom
+    				   * [n_atoms + min(nnz, n_channels * n_times_atom)]),
+        where nnz is the number of non zero entries in z.
+    """
     N = X.shape[0]
     p, C, L = D.shape
-    if S == 0:  # init closest with nz_index
+
+	# When S=0, use the partition of z
+    if S == 0:
         for trial in range(N):
             for ind in range(nnz[trial]):
                 updt_data[S] = nz_index[trial, ind, 0]
                 S += 1
-    closest = updt_data[:S]
-    old_closest = updt_data[S:2*S]
-    cluster_size = updt_data[2*S:2*S+p+1]
+
+    closest = updt_data[:S]  # partition index associated to each patch
+    old_closest = updt_data[S:2*S]  # previous partition (for stopping criteria)
+    cluster_size = updt_data[2*S:2*S+p+1]  # size of clusters in the partition
+
     for _ in range(MAX_KMEAN_STEPS):
+		# Compute the sizes of the clusters
         cluster_size[:] = 0
         for s in range(S):
             cluster_size[closest[s]] += 1
         for atom in range(p):
             cluster_size[atom+1] += cluster_size[atom]
+		
+		# Fill Y by packing patches belonging to the same cluster together
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -448,6 +478,8 @@ def kmean(X, nnz, nz_index, S,
                 for c in range(C):
                     Y[j, c*L:c*L+L] = X[trial, c, t:t+L]
                 s += 1
+		
+		# For each cluster, we use the max singular vector as a row of D
         for atom in range(p):
             i, j = cluster_size[atom], cluster_size[atom+1]
             if i == j:
@@ -456,8 +488,11 @@ def kmean(X, nnz, nz_index, S,
             d = np.linalg.svd(Y[i:j], full_matrices=False)[2][0]
             for c in range(C):
                 D[atom, c] = d[c*L:c*L+L]
+        
+		# We recompute the partition by assigning each patch to the row
+        # of D with the highest dot product
         old_closest, closest = closest, old_closest
-        E = 0
+        E = 0  # The l2 objective
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -474,8 +509,11 @@ def kmean(X, nnz, nz_index, S,
                 E += max_proj**2
                 closest[s] = best
                 s += 1
+                
+		# If partitions did not change since last iteration, we stop
         if np.array_equal(old_closest, closest):
             break
+    
     return E
 
 
