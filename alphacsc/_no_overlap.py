@@ -442,13 +442,13 @@ def kmean(X, nnz, nz_index, S,
     entry of z, is associated to the row of D with the highest dot product.
 
     Time Complexity: O(nnz * n_channels * n_times_atom
-    				   * [n_atoms + min(nnz, n_channels * n_times_atom)]),
+                       * [n_atoms + min(nnz, n_channels * n_times_atom)]),
         where nnz is the number of non zero entries in z.
     """
     N = X.shape[0]
     p, C, L = D.shape
 
-	# When S=0, use the partition of z
+    # When S=0, use the partition of z
     if S == 0:
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -456,18 +456,18 @@ def kmean(X, nnz, nz_index, S,
                 S += 1
 
     closest = updt_data[:S]  # partition index associated to each patch
-    old_closest = updt_data[S:2*S]  # previous partition (for stopping criteria)
+    old_closest = updt_data[S:2*S]  # previous partition for stopping criteria
     cluster_size = updt_data[2*S:2*S+p+1]  # size of clusters in the partition
 
     for _ in range(MAX_KMEAN_STEPS):
-		# Compute the sizes of the clusters
+        # Compute the sizes of the clusters
         cluster_size[:] = 0
         for s in range(S):
             cluster_size[closest[s]] += 1
         for atom in range(p):
             cluster_size[atom+1] += cluster_size[atom]
-		
-		# Fill Y by packing patches belonging to the same cluster together
+
+        # Fill Y by packing patches belonging to the same cluster together
         s = 0
         for trial in range(N):
             for ind in range(nnz[trial]):
@@ -478,8 +478,8 @@ def kmean(X, nnz, nz_index, S,
                 for c in range(C):
                     Y[j, c*L:c*L+L] = X[trial, c, t:t+L]
                 s += 1
-		
-		# For each cluster, we use the max singular vector as a row of D
+
+        # For each cluster, we use the max singular vector as a row of D
         for atom in range(p):
             i, j = cluster_size[atom], cluster_size[atom+1]
             if i == j:
@@ -488,8 +488,8 @@ def kmean(X, nnz, nz_index, S,
             d = np.linalg.svd(Y[i:j], full_matrices=False)[2][0]
             for c in range(C):
                 D[atom, c] = d[c*L:c*L+L]
-        
-		# We recompute the partition by assigning each patch to the row
+
+        # We recompute the partition by assigning each patch to the row
         # of D with the highest dot product
         old_closest, closest = closest, old_closest
         E = 0  # The l2 objective
@@ -509,11 +509,11 @@ def kmean(X, nnz, nz_index, S,
                 E += max_proj**2
                 closest[s] = best
                 s += 1
-                
-		# If partitions did not change since last iteration, we stop
+
+        # If partitions did not change since last iteration, we stop
         if np.array_equal(old_closest, closest):
             break
-    
+
     return E
 
 
