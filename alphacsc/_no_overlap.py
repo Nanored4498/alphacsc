@@ -5,9 +5,9 @@ import pyfftw
 from ._base import BaseZEncoder, BaseDSolver
 from .update_d_multi import prox_d
 
-# =================================
-# Helping functions for numba types
-# =================================
+# ================================
+# Helper functions for numba types
+# ================================
 
 
 def _float64_r(d=1):
@@ -39,8 +39,18 @@ def _int32_w(d=1):
 def _dp_fft(proj, n_times_atom, reg,
             dp, last, atom_index, atom_coeff):
     """
-    Computes z for one signal X, using proj, an array such that
-    proj[i, t] is the dot product between D[i] and X[:, t-n_times_atom+1:t+1]
+    Computes z for one signal X, using dynamic programming.
+    This function uses an array `proj` of dot products between D and X.
+    It then differs from `_dp_prod` which computes those dot products
+    on the fly.
+
+    Parameters
+    ----------------
+    proj: array, shape (n_atoms, n_times_valid)
+        contains proj[i, t], the dot product between D[i]
+        and X[:, t-n_times_atom+1:t+1].
+    n_times_atom: int
+        The length of an atom in the dictionary
 
     Notes
     -----
@@ -71,7 +81,7 @@ def _dp_fft(proj, n_times_atom, reg,
 def _dp_prod(D, D_mul, X, reg,
              dp, last, atom_index, atom_coeff):
     """
-    Computes z for one signal X, using D, the dictionary
+    Computes z for one signal X, using D, the dictionary.
 
     Notes
     -----
@@ -323,8 +333,8 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
             z_hat[trial, atom, t] = coeff
             ztz[atom, atom, t0] += coeff**2
             for c in range(C):
-                for l in range(L):
-                    ztX[atom, c, l] += coeff * X[trial, c, t+l]
+                for dt in range(L):
+                    ztX[atom, c, dt] += coeff * X[trial, c, t+dt]
             nnz_atom[atom] += 1
 
 
