@@ -45,15 +45,16 @@ class BaseZEncoder:
         self.XtX = np.dot(X.ravel(), X.ravel())
 
     def compute_z(self):
-        """Encode X by computing z for the current dictionary D_hat.
-        
+        """
+        Encode X by computing z for the current dictionary D_hat.
+
         This is the "main" method of this class.
         """
         raise NotImplementedError()
 
     def compute_z_partial(self, i0):
         """
-        Compute z on a slice of the signal X, for online learning.
+        Encode a slice of the signal X, for online learning.
 
         Parameters
         ----------
@@ -128,7 +129,7 @@ class BaseZEncoder:
 
     def get_z_hat(self):
         """
-        Returns the sparse codes of the signals.
+        Returns z_hat, corresponding to the encoded signal X.
 
         Returns
         -------
@@ -161,7 +162,7 @@ class BaseZEncoder:
 
     def set_D(self, D):
         """
-        Update the dictionary.
+        Update the encoder parameters, usually a dictionary.
 
         Parameters
         ----------
@@ -188,6 +189,10 @@ class BaseZEncoder:
 
     def get_constants(self):
         """
+        Return information necessary to update the encoder parameter.
+
+        For dictionary learning, this corresponds to the signal gram-matrix
+        $X^TX$, and the sufficient statistics $Z^TZ, Z^T X$.
         """
 
         return dict(n_channels=self.n_channels, XtX=self.XtX,

@@ -309,21 +309,22 @@ def _compute_z_hat(nnz, nz_index, nz_coeff, X,
         where nnz is the number of non zero entries in z.
     """
     z_hat[:] = 0
-    p = ztz.shape[0]
+    p, C, L = ztX.shape
     t0 = ztz.shape[2]//2
-    for i in range(p):
-        ztz[i, i, t0] = 0
-    L = ztX.shape[2]
+    for atom in range(p):
+        ztz[atom, atom, t0] = 0
     ztX[:] = 0
     nnz_atom[:] = 0
     for trial in range(len(nnz)):
-        for i in range(nnz[trial]):
-            atom = nz_index[trial, i, 0]
-            t = nz_index[trial, i, 1]
-            coeff = nz_coeff[trial, i]
+        for ind in range(nnz[trial]):
+            atom = nz_index[trial, ind, 0]
+            t = nz_index[trial, ind, 1]
+            coeff = nz_coeff[trial, ind]
             z_hat[trial, atom, t] = coeff
             ztz[atom, atom, t0] += coeff**2
-            ztX[atom] += coeff * X[trial, :, t:t+L]
+            for c in range(C):
+                for l in range(L):
+                    ztX[atom, c, l] += coeff * X[trial, c, t+l]
             nnz_atom[atom] += 1
 
 
@@ -678,10 +679,7 @@ class NoOverlapEncoder(BaseZEncoder):
                 (n_atoms, n_atoms, 2*self.n_times_atom-1),
                 dtype=np.float64
             )
-            self.ztX = np.empty(
-                (n_atoms, self.n_channels, self.n_times_atom),
-                dtype=np.float64
-            )
+            self.ztX = np.empty_like(self.D_hat)
             self.nnz_atom = np.empty(n_atoms, dtype=np.int32)
         _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X,
                        self.z_hat, self.ztz, self.ztX, self.nnz_atom)
@@ -729,7 +727,7 @@ class NoOverlapDSolver(BaseDSolver):
             self.kmean_init_data = np.empty(2*S2, dtype=np.float64)
             self.kmean_updt_data = np.empty(2*S2 + self.n_atoms + 1,
                                             dtype=np.int32)
-            self.D_tmp = np.empty_like(self.D_hat, dtype=np.float64)
+            self.D_tmp = np.empty_like(self.D_hat)
         E0 = kmean(z_encoder.X, nnz, nz_index, 0,
                    self.kmean_updt_data, self.Y, self.D_tmp)
         kmean_init(z_encoder.X, nnz, nz_index, self.n_atoms, self.n_times_atom,
