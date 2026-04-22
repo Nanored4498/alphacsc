@@ -235,8 +235,14 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
             print("[%s] Fit in %.1fs" % (name, time.time() - start))
 
         # Rescale the solution to match the given scale of the problem
+        # min || X / std - D * z0 ||_2^2 + reg * || z0 ||_1
+        # <=> min || X - D * z ||_2^2 + std * reg * || z ||_1
+        # with z = std * z0
         z_hat *= std_X
         reg = z_encoder.reg * std_X
+        # When the encoder is 'no-overlap', norm l0 is used as a regularizer
+        # min || X / std - D * z0 ||_2^2 + reg * || z0 ||_0
+        # <=> min || X - D * z ||_2^2 + std^2 * reg * || z ||_0
         if solver_z == 'no-overlap':
             reg *= std_X
 
