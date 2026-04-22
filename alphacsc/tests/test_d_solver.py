@@ -339,11 +339,7 @@ def test_add_one_atom(X, rank1, solver_d, uv_constraint, window):
 
     D_hat = d_solver.init_dictionary(X)
 
-    with get_z_encoder_for(X=X,
-                           D_hat=D_hat,
-                           n_atoms=N_ATOMS,
-                           n_times_atom=N_TIMES_ATOM,
-                           n_jobs=2) as z_encoder:
+    with get_z_encoder_for(X=X, D_hat=D_hat, n_jobs=2) as z_encoder:
 
         n_atoms_initial = d_solver.D_hat.shape[0]
         assert n_atoms_initial == 0
