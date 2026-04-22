@@ -45,9 +45,9 @@ class BaseZEncoder:
         self.XtX = np.dot(X.ravel(), X.ravel())
 
     def compute_z(self):
-        """
-        Perform one incremental z update.
-        This is the "main" function of the algorithm.
+        """Encode X by computing z for the current dictionary D_hat.
+        
+        This is the "main" method of this class.
         """
         raise NotImplementedError()
 
