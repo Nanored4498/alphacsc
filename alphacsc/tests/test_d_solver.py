@@ -114,7 +114,8 @@ def test_get_solver_d_error_solver(solver_d):
     """Tests for the case rank1 is False and solver_d is not compatible."""
 
     with pytest.raises(AssertionError,
-                       match="solver_d should be auto or fista. Got*"):
+                       match="solver_d should be 'auto', 'fista', "
+                             "or 'no-overlap'. Got*"):
 
         get_solver_d(N_CHANNELS,
                      N_ATOMS,

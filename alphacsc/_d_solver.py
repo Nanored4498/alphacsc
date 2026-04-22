@@ -55,11 +55,11 @@ def check_solver_and_constraints(rank1, solver_d, uv_constraint):
         if solver_d == 'auto':
             solver_d = 'fista'
         assert solver_d in ['fista', 'no-overlap'], (
-            "solver_d should be 'auto', 'fista', or 'no-overlap'."
-            f"Got solver_d='{solver_d}'."
+            "If rank1 is False, solver_d should be 'auto', 'fista', "
+            f"or 'no-overlap'. Got solver_d='{solver_d}'."
         )
         assert uv_constraint == 'auto', (
-            "If rank1 is False, uv_constraint should be 'auto'."
+            "If rank1 is False, uv_constraint should be 'auto'. "
             f"Got uv_constraint='{uv_constraint}'."
         )
     return solver_d, uv_constraint
@@ -133,7 +133,7 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
             )
         elif solver_d in ['fista', 'joint']:
             return JointDSolver(
-                n_channels, n_atoms, n_times_atom, solver_d, uv_constraint,
+                n_channels, n_atoms, n_times_atom, uv_constraint,
                 D_init, resample_strategy, window, eps, max_iter, momentum,
                 random_state, verbose, debug
             )
@@ -178,6 +178,14 @@ class Rank1DSolver(BaseDSolver):
     def prox(self, D_hat):
         return prox_uv(D_hat, uv_constraint=self.uv_constraint,
                        n_channels=self.n_channels)
+
+    def get_D_shape(self):
+        """Returns the expected shape of the dictionary.
+
+        Note: For the 'greedy' strategy this does not return the actual
+        dictionary shape, but the final expected shape.
+        """
+        return (self.n_atoms, self.n_channels + self.n_times_atom)
 
 
 class JointDSolver(Rank1DSolver):
