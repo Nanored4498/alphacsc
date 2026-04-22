@@ -15,7 +15,7 @@ DEFAULT_TOL_Z = 1e-3
 # XXX check consistency / proper use!
 
 
-def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
+def get_z_encoder_for(X, D_hat, n_jobs,
                       solver='l-bfgs', solver_kwargs=dict(),
                       reg=0.1):
     """
@@ -30,10 +30,6 @@ def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
         The dictionary used to encode the signal X. Can be either in the form
         of a full rank dictionary D (n_atoms, n_channels, n_times_atom) or with
         the spatial and temporal atoms uv (n_atoms, n_channels + n_times_atom)
-    n_atoms : int
-        The number of atoms to learn.
-    n_times_atom : int
-        The support of the atom.
     n_jobs : int
         The number of parallel jobs.
     solver : str
@@ -41,7 +37,7 @@ def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
         {{'l_bfgs' (default), 'lgcd', 'fista', 'ista', 'dicodile',
         'no-overlap'}}.
     solver_kwargs : dict
-        Additional keyword arguments to pass to update_z_multi.
+        Additional keyword arguments to pass to the encoder.
     reg : float
         The regularization parameter.
 
@@ -67,37 +63,18 @@ def get_z_encoder_for(X, D_hat, n_atoms, n_times_atom, n_jobs,
     assert reg is not None, 'reg value cannot be None.'
 
     if solver in ['l-bfgs', 'lgcd', 'fista', 'ista']:
-
-        return AlphaCSCEncoder(
-            X, D_hat, n_atoms, n_times_atom, n_jobs,
-            solver, solver_kwargs, reg
-        )
-
+        return AlphaCSCEncoder(X, D_hat, n_jobs, solver, solver_kwargs, reg)
     elif solver == 'dicodile':
-
-        return DicodileEncoder(
-            X, D_hat, n_atoms, n_times_atom, n_jobs,
-            solver_kwargs, reg
-        )
-
+        return DicodileEncoder(X, D_hat, n_jobs, solver_kwargs, reg)
     elif solver == 'no-overlap':
-
-        return NoOverlapEncoder(
-            X, D_hat, n_atoms, n_times_atom, n_jobs,
-            solver_kwargs, reg
-        )
-
+        return NoOverlapEncoder(X, D_hat, n_jobs, solver_kwargs, reg)
     else:
         raise ValueError(f'unrecognized solver type: {solver}.')
 
 
 class AlphaCSCEncoder(BaseZEncoder):
-    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
-                 solver, solver_kwargs, reg):
-
-        super().__init__(
-            X, D_hat, n_atoms, n_times_atom, n_jobs,  solver_kwargs, reg
-        )
+    def __init__(self, X, D_hat, n_jobs, solver, solver_kwargs, reg):
+        super().__init__(X, D_hat, n_jobs,  solver_kwargs, reg)
 
         self.solver = solver
 
@@ -109,7 +86,7 @@ class AlphaCSCEncoder(BaseZEncoder):
         Returns a array filed with 0 with the right size for sparse codes.
         """
         return np.zeros((
-            self.n_trials, n_atoms, self.n_times_valid
+            self.X.shape[0], n_atoms, self.n_times_valid
         ))
 
     def _compute_z_aux(self, X, z0, unbiased_z_hat):
@@ -127,12 +104,17 @@ class AlphaCSCEncoder(BaseZEncoder):
                                                              unbiased_z_hat)
 
     def compute_z_partial(self, i0, alpha=.8):
+        n_atoms = self.D_hat.shape[0]
         if not hasattr(self, 'ztz'):
-            self.ztz = np.zeros(
-                (self.n_atoms, self.n_atoms, 2 * self.n_times_atom - 1))
-        if not hasattr(self, 'ztX'):
-            self.ztX = np.zeros(
-                (self.n_atoms, self.n_channels, self.n_times_atom))
+            self.ztz = np.zeros((n_atoms, n_atoms, 2 * self.n_times_atom - 1))
+            self.ztX = np.zeros((n_atoms, self.n_channels, self.n_times_atom))
+        elif self.ztz.shape[0] < n_atoms:
+            nb_missing_atoms = n_atoms - self.ztz.shape[0]
+            pad = (0, nb_missing_atoms)
+            self.ztz = np.pad(self.ztz, (pad, pad, (0, 0)),
+                              mode='constant', constant_values=0)
+            self.ztX = np.pad(self.ztz, (pad, (0, 0), (0, 0)),
+                              mode='constant', constant_values=0)
 
         self.z_hat[i0], self.ztz_i0, self.ztX_i0 = self._compute_z_aux(
             self.X[i0], self.z_hat[i0], unbiased_z_hat=False)
@@ -213,8 +195,7 @@ class AlphaCSCEncoder(BaseZEncoder):
 
 
 class DicodileEncoder(BaseZEncoder):
-    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
-                 solver_kwargs, reg):
+    def __init__(self, X, D_hat, n_jobs, solver_kwargs, reg):
         try:
             import dicodile
         except ImportError as ie:
@@ -222,9 +203,7 @@ class DicodileEncoder(BaseZEncoder):
                 'Please install DiCoDiLe by running '
                 '"pip install alphacsc[dicodile]"') from ie
 
-        super().__init__(
-            X, D_hat, n_atoms, n_times_atom, n_jobs, solver_kwargs, reg
-        )
+        super().__init__(X, D_hat, n_jobs, solver_kwargs, reg)
 
         self._encoder = dicodile.update_z.distributed_sparse_encoder.DistributedSparseEncoder(  # noqa: E501
             n_workers=n_jobs)
@@ -236,12 +215,6 @@ class DicodileEncoder(BaseZEncoder):
         assert X.shape[0] == 1, (
             "X should be a valid array of shape (1, n_channels, n_times)."
         )
-
-        n_times = X.shape[2]
-        self.D_hat = D_hat
-        self.n_times_valid = n_times - n_times_atom + 1
-        self.n_atoms = n_atoms
-        self.n_times_atom = n_times_atom
 
         tol = DEFAULT_TOL_Z * np.std(self.X[0])
 
@@ -371,7 +344,7 @@ class DicodileEncoder(BaseZEncoder):
             return self._encoder.get_z_hat()[None]
 
         # If compute_z has not been run, return 0.
-        return np.zeros([1, self.n_atoms, self.n_times_valid])
+        return np.zeros([1, self.D_hat.shape[0], self.n_times_valid])
 
     def get_z_nnz(self):
         """

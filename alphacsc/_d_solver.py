@@ -142,13 +142,13 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
     else:
         if solver_d in ['auto', 'fista']:
             return DSolver(
-                n_channels, n_atoms, n_times_atom, solver_d, uv_constraint,
+                n_channels, n_atoms, n_times_atom, uv_constraint,
                 D_init, resample_strategy, window, eps, max_iter, momentum,
                 random_state, verbose, debug
             )
         elif solver_d == 'no-overlap':
             return NoOverlapDSolver(
-                n_channels, n_atoms, n_times_atom, solver_d, uv_constraint,
+                n_channels, n_atoms, n_times_atom, uv_constraint,
                 D_init, resample_strategy, window, eps, max_iter, momentum,
                 random_state, verbose, debug
             )
@@ -159,12 +159,12 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
 class Rank1DSolver(BaseDSolver):
     """Base class for a rank1 solver d."""
 
-    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+    def __init__(self, n_channels, n_atoms, n_times_atom,
                  uv_constraint, D_init, resample_strategy, window, eps,
                  max_iter, momentum, random_state, verbose, debug):
 
         super().__init__(
-            n_channels, n_atoms, n_times_atom, solver_d, uv_constraint,
+            n_channels, n_atoms, n_times_atom, uv_constraint,
             D_init, resample_strategy, window, eps, max_iter, momentum,
             random_state, verbose, debug
         )
@@ -183,12 +183,12 @@ class Rank1DSolver(BaseDSolver):
 class JointDSolver(Rank1DSolver):
     """A class for 'fista' or 'joint' solver_d when rank1 is True. """
 
-    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+    def __init__(self, n_channels, n_atoms, n_times_atom,
                  uv_constraint, D_init, resample_strategy, window,
                  eps, max_iter, momentum, random_state, verbose, debug):
 
         super().__init__(
-            n_channels, n_atoms, n_times_atom, solver_d, uv_constraint, D_init,
+            n_channels, n_atoms, n_times_atom, uv_constraint, D_init,
             resample_strategy,  window, eps, max_iter, momentum,
             random_state, verbose, debug
         )
@@ -210,7 +210,7 @@ class AlternateDSolver(Rank1DSolver):
                  max_iter, momentum, random_state, verbose, debug):
 
         super().__init__(
-            n_channels, n_atoms, n_times_atom, solver_d, uv_constraint, D_init,
+            n_channels, n_atoms, n_times_atom, uv_constraint, D_init,
             resample_strategy, window, eps, max_iter, momentum, random_state,
             verbose, debug
         )
@@ -421,13 +421,13 @@ class AlternateDSolver(Rank1DSolver):
 class DSolver(BaseDSolver):
     """A class for 'fista' solver_d when rank1 is False. """
 
-    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+    def __init__(self, n_channels, n_atoms, n_times_atom,
                  uv_constraint, D_init, resample_strategy,
                  window, eps, max_iter, momentum,
                  random_state, verbose, debug):
 
         super().__init__(
-            n_channels, n_atoms, n_times_atom, solver_d, uv_constraint, D_init,
+            n_channels, n_atoms, n_times_atom, uv_constraint, D_init,
             resample_strategy, window, eps, max_iter, momentum,
             random_state, verbose, debug
         )

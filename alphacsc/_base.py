@@ -8,20 +8,38 @@ from .utils.validation import check_random_state
 
 
 class BaseZEncoder:
+    """Base class for a z encoder.
 
-    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
-                 solver_kwargs, reg):
+    Parameters
+    ----------
+    X : array, shape (n_trials, n_channels, n_times)
+        The data on which to perform CSC.
+    D_hat : array, shape (n_atoms, n_channels, n_times) or
+        (n_atoms, n_channels + n_times_atom)
+        The dictionary used to encode the signal X. Can be either in the form
+        of a full rank dictionary D (n_atoms, n_channels, n_times_atom) or with
+        the spatial and temporal atoms uv (n_atoms, n_channels + n_times_atom)
+    n_jobs : int
+        The number of parallel jobs.
+    solver_kwargs : dict
+        Additional keyword arguments to pass to the encoder.
+    reg : float
+        The regularization parameter.
+    """
+
+    def __init__(self, X, D_hat, n_jobs, solver_kwargs, reg):
 
         self.X = X
         self.D_hat = D_hat
-        self.n_atoms = n_atoms
-        self.n_times_atom = n_times_atom
         self.n_jobs = n_jobs
 
         self.solver_kwargs = solver_kwargs
         self.reg = reg
 
-        self.n_trials, self.n_channels, self.n_times = X.shape
+        _, self.n_channels, self.n_times = X.shape
+        self.n_times_atom = D_hat.shape[-1]
+        if D_hat.ndim == 2:
+            self.n_times_atom -= self.n_channels
         self.n_times_valid = self.n_times - self.n_times_atom + 1
 
         self.XtX = np.dot(X.ravel(), X.ravel())
@@ -128,7 +146,7 @@ class BaseZEncoder:
         shape : tuple
             Shape of the sparse code.
         """
-        return (self.n_trials, self.n_atoms, self.n_times_valid)
+        return (self.X.shape[0], self.D_hat.shape[0], self.n_times_valid)
 
     def get_z_nnz(self):
         """
@@ -185,7 +203,7 @@ class BaseZEncoder:
 class BaseDSolver:
     """Base class for a d solver."""
 
-    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+    def __init__(self, n_channels, n_atoms, n_times_atom,
                  uv_constraint, D_init, resample_strategy, window, eps,
                  max_iter, momentum, random_state, verbose, debug):
 

@@ -532,10 +532,8 @@ class NoOverlapEncoder(BaseZEncoder):
     # TODO: Adjust the value of this constant
     USE_FFT_THRESHOLD = 2.
 
-    def __init__(self, X, D_hat, n_atoms, n_times_atom, n_jobs,
-                 solver_kwargs, reg):
-        super().__init__(X, D_hat, n_atoms, n_times_atom, n_jobs,
-                         solver_kwargs, reg)
+    def __init__(self, X, D_hat, n_jobs, solver_kwargs, reg):
+        super().__init__(X, D_hat, n_jobs, solver_kwargs, reg)
 
         self.dp = np.empty(self.n_times+1, dtype=np.float64)
         self.last = np.empty(self.n_times+1, dtype=np.int32)
@@ -544,8 +542,9 @@ class NoOverlapEncoder(BaseZEncoder):
         self.dp[:self.n_times_atom] = 0
         self.last[:self.n_times_atom] = -1
 
+        n_trials = X.shape[0]
         self.use_fft = (
-            (self.n_trials + self.n_channels) * self.n_times_atom
+            (n_trials + self.n_channels) * self.n_times_atom
             >
             self.USE_FFT_THRESHOLD * np.log2(self.n_times)
         )
@@ -553,18 +552,18 @@ class NoOverlapEncoder(BaseZEncoder):
             T2 = pyfftw.next_fast_len(self.n_times)
             Tc = T2//2+1
             self.X_fft = pyfftw.interfaces.numpy_fft.rfft(self.X, n=T2) / T2
+            n_atoms = D_hat.shape[0]
             self.fft_data = pyfftw.zeros_aligned(
-                (self.n_atoms, self.n_channels, 2*Tc),
+                (n_atoms, self.n_channels, 2*Tc),
                 dtype='float64'
             )
             self.fft_out = np.ndarray(
-                (self.n_atoms, self.n_channels, Tc),
+                (n_atoms, self.n_channels, Tc),
                 dtype='complex128',
                 buffer=self.fft_data.data
             )
-            self.proj = pyfftw.zeros_aligned((self.n_atoms, 2*Tc),
-                                             dtype='float64')
-            self.proj_in = np.ndarray((self.n_atoms, Tc), dtype='complex128',
+            self.proj = pyfftw.zeros_aligned((n_atoms, 2*Tc), dtype='float64')
+            self.proj_in = np.ndarray((n_atoms, Tc), dtype='complex128',
                                       buffer=self.proj.data)
             self.fft_fwd = pyfftw.FFTW(
                 self.fft_data[..., :T2],
@@ -580,19 +579,16 @@ class NoOverlapEncoder(BaseZEncoder):
                 normalise_idft=False
             )
 
-        self.nnz = np.zeros(self.n_trials, dtype=np.int32)
+        self.nnz = np.zeros(n_trials, dtype=np.int32)
         self.nz_index = np.empty(
-            (self.n_trials, self.n_times // self.n_times_atom, 2),
+            (n_trials, self.n_times // self.n_times_atom, 2),
             dtype=np.int32
         )
         self.nz_coeff = np.empty(
-            (self.n_trials, self.n_times // self.n_times_atom),
+            (n_trials, self.n_times // self.n_times_atom),
             dtype=np.float64
         )
         self.total_nnz = 0
-
-        self.z_hat = None
-        self.nnz_atom = None
         self.z_hat_computed = False
 
         self._prox()
@@ -614,7 +610,7 @@ class NoOverlapEncoder(BaseZEncoder):
             )
             self.fft_data[..., self.n_times_atom:] = 0
             self.fft_fwd()
-            for trial in range(self.n_trials):
+            for trial in range(self.X.shape[0]):
                 np.einsum("ict,ct->it", self.fft_out, self.X_fft[trial],
                           out=self.proj_in)
                 self.fft_bwd()
@@ -628,7 +624,7 @@ class NoOverlapEncoder(BaseZEncoder):
                 )
                 self.cost += self.dp[-1]
         else:
-            for trial in range(self.n_trials):
+            for trial in range(self.X.shape[0]):
                 _dp_prod(self.D_hat, self.D_mul, self.X[trial], self.reg,
                          self.dp, self.last, self.atom_index, self.atom_coeff)
                 self.nnz[trial] = (
@@ -675,17 +671,18 @@ class NoOverlapEncoder(BaseZEncoder):
         self._update_z()
         if self.z_hat_computed:
             return
-        if self.z_hat is None:
+        if not hasattr(self, "z_hat"):
             self.z_hat = np.empty(self.get_z_hat_shape(), dtype=np.float64)
+            n_atoms = self.D_hat.shape[0]
             self.ztz = np.zeros(
-                (self.n_atoms, self.n_atoms, 2*self.n_times_atom-1),
+                (n_atoms, n_atoms, 2*self.n_times_atom-1),
                 dtype=np.float64
             )
             self.ztX = np.empty(
-                (self.n_atoms, self.n_channels, self.n_times_atom),
+                (n_atoms, self.n_channels, self.n_times_atom),
                 dtype=np.float64
             )
-            self.nnz_atom = np.empty(self.n_atoms, dtype=np.int32)
+            self.nnz_atom = np.empty(n_atoms, dtype=np.int32)
         _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X,
                        self.z_hat, self.ztz, self.ztX, self.nnz_atom)
         self.z_hat_computed = True
@@ -714,19 +711,17 @@ class NoOverlapEncoder(BaseZEncoder):
 
 class NoOverlapDSolver(BaseDSolver):
 
-    def __init__(self, n_channels, n_atoms, n_times_atom, solver_d,
+    def __init__(self, n_channels, n_atoms, n_times_atom,
                  uv_constraint, D_init, resample_strategy, window, eps,
                  max_iter, momentum, random_state, verbose, debug):
-        super().__init__(n_channels, n_atoms, n_times_atom, solver_d,
+        super().__init__(n_channels, n_atoms, n_times_atom,
                          uv_constraint, D_init, resample_strategy, window, eps,
                          max_iter, momentum, random_state, verbose, debug)
-
-        self.Y = None
 
     def update_D(self, z_encoder):
         nnz, nz_index, _ = z_encoder.get_z_sparse()
         S = nnz.sum()
-        if self.Y is None or self.Y.shape[0] < S:
+        if (not hasattr(self, 'Y')) or self.Y.shape[0] < S:
             N, _, T = z_encoder.X.shape
             S2 = min(int(1.125*S), N * (T // self.n_times_atom))
             self.Y = np.empty((S2, self.n_channels * self.n_times_atom),
