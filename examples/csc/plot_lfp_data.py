@@ -40,7 +40,7 @@ fname = os.path.join(fname, archive_name)
 from scipy import io
 
 data = io.loadmat(fname)
-X, sfreq = data['X'].T, float(data['sfreq'])
+X, sfreq = data['X'].T, float(data['sfreq'].ravel()[0])
 
 ###############################################################################
 # And now let us look at the data

@@ -169,7 +169,7 @@ def update_d_block(X, Z, n_times_atom, lambd0=None, ds_init=None,
                     lhs, rhs, factr=factr, lambd0=np.array([lambd0[k]]),
                     lhs_is_toeplitz=sample_weights is None)
 
-                lambd_hats[k] = lambd_hat[0]
+                lambd_hats[k] = lambd_hat if isinstance(lambd_hat, float) else lambd_hat[0]
             else:
                 raise ValueError('Unknown projection %s.' % projection)
             ds[k] = d_hat[::-1]  # reversal for convolution
