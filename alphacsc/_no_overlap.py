@@ -40,17 +40,39 @@ def _dp_fft(proj, n_times_atom, reg,
             dp, last, atom_index, atom_coeff):
     """
     Computes z for one signal X, using dynamic programming.
-    This function uses an array `proj` of dot products between D and X.
-    It then differs from `_dp_prod` which computes those dot products
-    on the fly.
+
+    This function uses an array `proj` of pre-computed dot products
+    between D and X. It differs from `_dp_prod` which computes those
+    dot products on the fly when the atoms are small enough.
 
     Parameters
-    ----------------
-    proj: array, shape (n_atoms, n_times_valid)
-        contains proj[i, t], the dot product between D[i]
+    ----------
+
+    Inputs
+
+    proj: array, shape (n_atoms, >= n_times)
+        Contains proj[i, t], the dot product between D[i]
         and X[:, t-n_times_atom+1:t+1].
     n_times_atom: int
         The length of an atom in the dictionary
+    reg: float
+        Regularization parameter in the energy
+        E = 0.5 * || X - X_hat ||_2^2 + reg * || z ||_0
+
+    Outputs
+
+    dp: array, shape (n_times+1,)
+        Contains dp[t], the best energy achievable for
+        the sub-signal X[:, :t]
+    last: array, shape (n_times+1,)
+        Contains last[t], the ending time of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_index: array, shape (n_times+1,)
+        Contains atom_index[t], the atom index of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_coeff: array, shape (n_times+1,)
+        Contains atom_index[t], the coefficient of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
 
     Notes
     -----
@@ -82,6 +104,39 @@ def _dp_prod(D, D_mul, X, reg,
              dp, last, atom_index, atom_coeff):
     """
     Computes z for one signal X, using D, the dictionary.
+
+    This function differs from `_dp_fft` which used precomputed
+    dot products using FFT.
+
+    Parameters
+    ----------
+
+    Inputs
+
+    D: array, shape (n_atoms, n_channels, n_times_atom)
+        The dictionary
+    D_mul: array, shape (n_atoms,)
+        The inverse of the atom norms
+    X: array, shape (n_channels, n_times)
+        The signal
+    reg: float
+        Regularization parameter in the energy
+        E = 0.5 * || X - X_hat ||_2^2 + reg * || z ||_0
+
+    Outputs
+
+    dp: array, shape (n_times+1,)
+        Contains dp[t], the best energy achievable for
+        the sub-signal X[:, :t]
+    last: array, shape (n_times+1,)
+        Contains last[t], the ending time of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_index: array, shape (n_times+1,)
+        Contains atom_index[t], the atom index of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_coeff: array, shape (n_times+1,)
+        Contains atom_index[t], the coefficient of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
 
     Notes
     -----
@@ -118,6 +173,35 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, n_times_atom,
     Retrieve z as a sparse representation from the array `last`,
     obtained via dynamic programming (DP).
 
+    Parameters
+    ----------
+
+    Inputs
+
+    D_mul: array, shape (n_atoms,)
+        The inverse of the atom norms
+    last: array, shape (n_times+1,)
+        Contains last[t], the ending time of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_index: array, shape (n_times+1,)
+        Contains atom_index[t], the atom index of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    atom_coeff: array, shape (n_times+1,)
+        Contains atom_index[t], the coefficient of the last activation
+        in a best signal encoding for the sub-signal X[:, :t]
+    n_times_atom: int
+        The length of an atom in the dictionary
+
+    Outputs
+
+    nz_index: array, shape (>= nnz, 2)
+        Contains nz_index[i][0], the atom index of the i-th activation
+        of the signal encoding, and nz_index[i][1], the start time of
+        the i-th activation.
+    nz_coeff: array, shape (>= nnz)
+        Contains nz_coeff[i], the coefficient of the i-th activation
+        of the signal encoding.
+
     Returns
     -------
     nnz : int
@@ -145,11 +229,41 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, n_times_atom,
     cache=True, nogil=True
 )
 def _compute_z_from_T(D, D_mul, X, nnz,
-                      XtX, penalty,
+                      XtX, reg,
                       nz_index, nz_coeff):
     """
     Computes the best z value for a gien dictionary D and
     a temporal support T stored in nz_index
+
+    Parameters
+    ----------
+
+    Inputs
+
+    D: array, shape (n_atoms, n_channels, n_times_atom)
+        The dictionary
+    D_mul: array, shape (n_atoms,)
+        The inverse of the atom norms
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    XtX: float
+        The squared norm of X
+    reg: float
+        Regularization parameter in the energy
+        E = 0.5 * || X - X_hat ||_2^2 + reg * || z ||_0
+
+    Outputs
+
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,0], the atom index of the i-th activation
+        of the signal encoding, and nz_index[trial,i,1], the start time of
+        the i-th activation for each trial. The atom index is updated by
+        this function while the start time is an input left unchanged.
+    nz_coeff: array, shape (n_trials, >= nnz)
+        Contains nz_coeff[trial,i], the coefficient of the i-th activation
+        of the signal encoding of each trial.
 
     Returns
     -------
@@ -178,7 +292,7 @@ def _compute_z_from_T(D, D_mul, X, nnz,
             E0 -= max_proj**2
             nz_index[trial][ind][0] = best
             nz_coeff[trial][ind] = max_proj * D_mul[best]
-    return .5 * E0 + penalty * Ereg
+    return .5 * E0 + reg * Ereg
 
 
 @nb.njit(
@@ -187,11 +301,28 @@ def _compute_z_from_T(D, D_mul, X, nnz,
     cache=True, nogil=True
 )
 def _compute_objective(D, X, nnz, nz_index,
-                       XtX, penalty):
+                       XtX, reg):
     """
     Computes the objective E for a gien dictionary D and
     a temporal support T stored in nz_index.
     To do so, the best z matching the temporal support T is computed.
+
+    Parameters
+    ----------
+    D: array, shape (n_atoms, n_channels, n_times_atom)
+        The dictionary
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,1], the start time of the i-th activation
+        for each trial
+    XtX: float
+        The squared norm of X
+    reg: float
+        Regularization parameter in the energy
+        E = 0.5 * || X - X_hat ||_2^2 + reg * || z ||_0
 
     Returns
     -------
@@ -220,7 +351,7 @@ def _compute_objective(D, X, nnz, nz_index,
                     proj += D2[atom, c] @ X[trial, c, t:t+L]
                 max_proj = max(max_proj, np.abs(proj))
             E0 -= max_proj**2
-    return .5 * E0 + penalty * Ereg
+    return .5 * E0 + reg * Ereg
 
 
 @nb.njit(
