@@ -800,8 +800,9 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def get_max_error_patch(self):
         self._update_z()
-        trial, t = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff,
-                                         self.D_hat, self.X)
+        trial, t = _find_max_error_patch(
+            self.nnz, self.nz_index, self.nz_coeff,
+            self.D_hat, self.X)
         return self.X[trial, :, t:t+self.n_times_atom][None].copy()
 
     def get_z_sparse(self):
