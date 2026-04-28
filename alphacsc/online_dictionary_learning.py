@@ -61,9 +61,9 @@ class OnlineCDL(ConvolutionalDictionaryLearning):
         # X_full ( X_full / X_full.std())
         self._ensure_fit_init(X)
 
-        with get_z_encoder_for(X, self._D_hat, self.n_atoms, self.n_times_atom,
-                               self.n_jobs, self.solver_z,
-                               self.solver_z_kwargs, self.reg_) as z_encoder:
+        with get_z_encoder_for(X, self._D_hat, self.n_jobs,
+                               self.solver_z, self.solver_z_kwargs,
+                               self.reg_) as z_encoder:
 
             z_encoder.compute_z()
 

@@ -252,10 +252,8 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
 def _batch_learn(z_encoder, d_solver, end_iter_func, n_iter=100,
                  lmbd_max='fixed', reg=None, verbose=0, greedy=False,
                  random_state=None, name="batch"):
-
-    _, n_atoms, _ = z_hat_shape = z_encoder.get_z_hat_shape()
-
     if greedy:
+        n_atoms, *_ = d_solver.get_D_shape()
         n_iter_by_atom = 1
 
         if n_iter < n_atoms * n_iter_by_atom:
@@ -300,6 +298,7 @@ def _batch_learn(z_encoder, d_solver, end_iter_func, n_iter=100,
 
         z_nnz = z_encoder.get_z_nnz()
         if verbose > 5:
+            z_hat_shape = z_encoder.get_z_hat_shape()
             print(
                 f"[{name}] Objective (z) : {pobj[-1]:.3e} "
                 f"(sparsity: {z_nnz.sum() / np.prod(z_hat_shape):.3e})"

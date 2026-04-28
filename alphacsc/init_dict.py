@@ -36,7 +36,7 @@ def get_init_strategy(n_times_atom, shape, random_state, D_init):
     elif D_init == 'chunk':
         return ChunkStrategy(n_times_atom, shape, random_state)
     elif D_init == 'greedy':
-        return GreedyStrategy(shape, random_state)
+        return GreedyStrategy(shape)
     else:
         raise NotImplementedError('It is not possible to initialize uv'
                                   ' with parameter {}.'.format(D_init))
@@ -125,22 +125,21 @@ class ChunkStrategy():
         return D_hat
 
 
-class GreedyStrategy(RandomStrategy):
-    """A class that creates a random dictionary for a specified shape and
-    removes all elements.
+class GreedyStrategy():
+    """A class that creates an empty dictionary.
 
     Parameters
     ----------
     shape: tuple
         Expected shape of the dictionary. (n_atoms, n_channels + n_times_atoms)
-    or (n_atoms, n_channels, n_times_atom)
-    random_state: int or np.random.RandomState
-        A seed to generate a RandomState instance or the instance itself.
+        or (n_atoms, n_channels, n_times_atom)
     """
 
+    def __init__(self, shape):
+        self.shape = shape
+
     def initialize(self, X):
-        D_hat = super().initialize(X)
-        return D_hat[:0]
+        return np.empty(shape=(0, *self.shape[1:]), dtype=np.float64)
 
 
 def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
