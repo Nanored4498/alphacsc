@@ -107,3 +107,4 @@ ax_hat.plot(X_hat[trial, channel, 5000:5800],
 ax_hat.set_xlabel('time (x10ms)')
 ax_hat.set_ylabel('acceleration ($m.s^{-2}$)')
 ax_hat.legend()
+plt.show()

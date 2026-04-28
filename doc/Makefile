@@ -53,13 +53,13 @@ html-noplot:
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 
 .PHONY: html
-html-local:
+html:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 
 .PHONY: html
-html:
+html-mpi:
 	mpiexec -bind-to none -np 1 $(ALLOW_AS_ROOT) --host localhost:50 $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
@@ -149,7 +149,7 @@ install:
 	# history prior to the last commit
 	git clone --no-checkout --depth 1 https://github.com/alphacsc/alphacsc.github.io.git _build/alphacsc.github.io
 	touch _build/alphacsc.github.io/.nojekyll
-	make html
+	make html-mpi
 	cd _build/ && \
 	cp -r html/* alphacsc.github.io && \
 	cd alphacsc.github.io && \
