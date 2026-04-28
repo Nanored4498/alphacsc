@@ -356,14 +356,30 @@ def _compute_objective(D, X, nnz, nz_index,
 
 @nb.njit(
     nb.types.UniTuple(nb.int32, 2)(
-        _int32_r(), _int32_r(3), _float64_r(2),
-        _float64_r(3), _float64_r(3)),
+        _float64_r(3), _float64_r(3),
+        _int32_r(), _int32_r(3), _float64_r(2)),
     cache=True, nogil=True
 )
-def _find_max_error_patch(nnz, nz_index, nz_coeff,
-                          D, X):
+def _find_max_error_patch(D, X,
+                          nnz, nz_index, nz_coeff):
     """
     Find the patch with the maximum residual error.
+
+    Parameters
+    ----------
+    D: array, shape (n_atoms, n_channels, n_times_atom)
+        The dictionary
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,0], the atom index of the i-th activation
+        of the signal encoding, and nz_index[trial,i,1], the start time of
+        the i-th activation for each trial.
+    nz_coeff: array, shape (n_trials, >= nnz)
+        Contains nz_coeff[trial,i], the coefficient of the i-th activation
+        of the signal encoding of each trial.
 
     Returns
     -------
@@ -438,12 +454,42 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
             _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()),
     cache=True, nogil=True
 )
-def _compute_z_hat(nnz, nz_index, nz_coeff, X,
+def _compute_z_hat(X, nnz, nz_index, nz_coeff,
                    z_hat, ztz, ztX, nnz_atom):
     """
     Computes the dense representation of z_hat from its spartse representation.
     Also computes ztz, ztX and nnz_atom which is the number of non-zero entries
     of z per atom.
+
+    Parameters
+    ----------
+
+    Input
+
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,0], the atom index of the i-th activation
+        of the signal encoding, and nz_index[trial,i,1], the start time of
+        the i-th activation for each trial.
+    nz_coeff: array, shape (n_trials, >= nnz)
+        Contains nz_coeff[trial,i], the coefficient of the i-th activation
+        of the signal encoding of each trial.
+
+    Output
+
+    z_hat : array, shape (n_trials, n_atoms, n_times_valid)
+        The dense representation of the activation
+    ztz : array, shape (n_atoms, n_atoms, 2*n_times_atom-1)
+        Contains ztz[i, j, t] the dot product between z_hat[:,i]
+        and z_hat[:,j] shifted by t-n_times_atom+1 in time.
+    ztX : array, shape (n_atoms, n_channels, n_times_atom)
+        Contains ztX[i, c, dt] the sum over each trial and each
+        valid time step t of z[trial, i, t] * X[trial, c, t+dt]
+    nnz_atom : array, shape (n_atoms,)
+        The number of activations of each atom to encode the signal X
 
     Notes
     -----
@@ -801,8 +847,8 @@ class NoOverlapEncoder(BaseZEncoder):
     def get_max_error_patch(self):
         self._update_z()
         trial, t = _find_max_error_patch(
-            self.nnz, self.nz_index, self.nz_coeff,
-            self.D_hat, self.X)
+            self.D_hat, self.X,
+            self.nnz, self.nz_index, self.nz_coeff)
         return self.X[trial, :, t:t+self.n_times_atom][None].copy()
 
     def get_z_sparse(self):
@@ -822,7 +868,7 @@ class NoOverlapEncoder(BaseZEncoder):
             )
             self.ztX = np.empty_like(self.D_hat)
             self.nnz_atom = np.empty(n_atoms, dtype=np.int32)
-        _compute_z_hat(self.nnz, self.nz_index, self.nz_coeff, self.X,
+        _compute_z_hat(self.X, self.nnz, self.nz_index, self.nz_coeff,
                        self.z_hat, self.ztz, self.ztX, self.nnz_atom)
         self.z_hat_computed = True
 
