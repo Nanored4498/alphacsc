@@ -355,8 +355,9 @@ def _compute_objective(D, X, nnz, nz_index,
 
 
 @nb.njit(
-    nb.int64(_int32_r(), _int32_r(3), _float64_r(2),
-             _float64_r(3), _float64_r(3)),
+    nb.types.UniTuple(nb.int32, 2)(
+        _int32_r(), _int32_r(3), _float64_r(2),
+        _float64_r(3), _float64_r(3)),
     cache=True, nogil=True
 )
 def _find_max_error_patch(nnz, nz_index, nz_coeff,
@@ -366,12 +367,10 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
 
     Returns
     -------
-    max_error_ind : int64
-        An integer such that:
-        * (max_error_ind >> 32) is the trial index in which the patch
-            with max error is found.
-        * (max_error_ind & 0xffffffff) is the start time of the patch
-            with max error.
+    trial : int
+        The trial index in which the patch with max error is found.
+    time : int
+        The start time of the patch with max error.
 
     Notes
     -----
@@ -384,7 +383,8 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
     # entries of the residual (X - X_hat)
     patch = np.zeros(L, dtype=np.float64)
     max_error = 0.  # The max error seen for a patch
-    max_error_ind = 0  # The returned value of this function
+    max_error_trial = 0  # The trial of the max error patch
+    max_error_time = 0  # The time of the max error patch
 
     for trial in range(len(nnz)):
 
@@ -427,9 +427,10 @@ def _find_max_error_patch(nnz, nz_index, nz_coeff,
             # We update the max error
             if error > max_error:
                 max_error = error
-                max_error_ind = (trial << 32) | max(0, t-L+1)
+                max_error_trial = trial
+                max_error_time = max(0, t-L+1)
 
-    return max_error_ind
+    return max_error_trial, max_error_time
 
 
 @nb.njit(
@@ -799,11 +800,9 @@ class NoOverlapEncoder(BaseZEncoder):
 
     def get_max_error_patch(self):
         self._update_z()
-        ind = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff,
-                                    self.D_hat, self.X)
-        atom_ind = ind >> 32
-        t = ind & ((1 << 32)-1)
-        return self.X[atom_ind, :, t:t+self.n_times_atom][None].copy()
+        trial, t = _find_max_error_patch(self.nnz, self.nz_index, self.nz_coeff,
+                                         self.D_hat, self.X)
+        return self.X[trial, :, t:t+self.n_times_atom][None].copy()
 
     def get_z_sparse(self):
         self._update_z()
