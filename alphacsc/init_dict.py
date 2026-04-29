@@ -11,6 +11,8 @@ from .utils.dictionary import tukey_window
 from .utils.dictionary import get_uv
 from .utils.validation import check_random_state
 
+from ._no_overlap import NoOverlapStrategy
+
 
 def get_init_strategy(n_times_atom, shape, random_state, D_init):
     """Returns dictionary initialization strategy.
@@ -27,7 +29,7 @@ def get_init_strategy(n_times_atom, shape, random_state, D_init):
     D_init : str or array, shape (n_atoms, n_channels + n_times_atoms) or \
                            shape (n_atoms, n_channels, n_times_atom)
         The initial atoms or an initialization scheme in
-        {'chunk' | 'random' | 'greedy'}.
+        {'chunk' | 'random' | 'greedy' | 'no-overlap'}.
     """
     if isinstance(D_init, np.ndarray):
         return IdentityStrategy(shape, D_init)
@@ -37,6 +39,8 @@ def get_init_strategy(n_times_atom, shape, random_state, D_init):
         return ChunkStrategy(n_times_atom, shape, random_state)
     elif D_init == 'greedy':
         return GreedyStrategy(shape)
+    elif D_init == 'no-overlap':
+        return NoOverlapStrategy(shape)
     else:
         raise NotImplementedError('It is not possible to initialize uv'
                                   ' with parameter {}.'.format(D_init))
@@ -162,7 +166,7 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
         If set to True, use a rank 1 dictionary.
     window: boolean
         If True, multiply the atoms with a temporal Tukey window.
-    D_init: array or {'chunk' | 'random'}
+    D_init: array or {'chunk' | 'random' | 'no-overlap'}
         The initialization scheme for the dictionary or the initial
         atoms. The shape should match the required dictionary shape, ie if
         rank1 is True, (n_atoms, n_channels + n_times_atom) and else
@@ -201,6 +205,10 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
 
     elif D_init == 'greedy':
         raise NotImplementedError()
+
+    elif D_init == 'no-overlap':
+        assert not rank1
+        D_hat = NoOverlapStrategy(D_shape).initialize(X)
 
     else:
         raise NotImplementedError('It is not possible to initialize uv with'

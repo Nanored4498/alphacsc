@@ -396,7 +396,7 @@ def _find_max_error_patch(D, X,
     T = X.shape[-1]
     C, L = D.shape[-2:]
     # patch is a circular array storing the last L=n_times_atom
-    # entries of the residual (X - X_hat)
+    # entries of the residual (X - X_hat)**2
     patch = np.zeros(L, dtype=np.float64)
     max_error = 0.  # The max error seen for a patch
     max_error_trial = 0  # The trial of the max error patch
@@ -427,8 +427,7 @@ def _find_max_error_patch(D, X,
 
             # We remove the error associated to time t-L
             # which is non longer part of the current patch
-            if t >= L:
-                error -= patch[tp]
+            error -= patch[tp]
 
             # We compute the error associated to time t
             diff = 0
@@ -534,6 +533,31 @@ def kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
     Computes a partition of the temporal support T in n_atoms parts.
     The algorithm is inspired by k-mean++.
 
+    Parameters
+    ----------
+
+    Input
+
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,1], the start time of
+        the i-th activation for each trial.
+    n_atoms: int
+        The number of atoms in the dictionary to learn.
+    n_times_atom: int
+        The length of an atom in the dictionary
+
+    Internal buffers
+
+    init_data: array, shape (>= 2*nnz)
+        Buffer used internally
+    updt_data: array, shape (>= nnz)
+        Buffer used internally. This buffer will contains the
+        initial parition to used in kmean function.
+
     Notes
     -----
     The algorithm creates a set of n_atoms normalized patches U.
@@ -615,8 +639,40 @@ def kmean(X, nnz, nz_index, S,
     Computes a partition of the temporal support T in len(D) parts.
     The algorithm is inspired by k-mean. If a partition is already stored
     in updt_data, S should be the size of the temporal support. Otherwise,
-    S should be 0, and updt_data is initialized with a the parition given
+    S should be 0, and updt_data is initialized with a the partition given
     by z in nz_index.
+
+    Parameters
+    ----------
+    Input
+
+    X: array, shape (n_trials, n_channels, n_times)
+        The signal
+    nnz: array, shape (n_trials,)
+        The number of activations to encode each trial
+    nz_index: array, shape (n_trials, >= nnz, 2)
+        Contains nz_index[trial,i,1], the start time of
+        the i-th activation for each trial.
+    S: int
+        If S is 0, then the initial partition is taken from
+        nz_index[trial,i,0], the atom index of the i-th activation
+        for each trial.
+        Otherwise, S should be equal to nnz.sum(), the total number
+        of activations from all trials, and the initial partition is
+        taken from updt_data which has to be intialized with `kmean_init`.
+
+    Internal buffers
+
+    updt_data: array, shape (>= nnz)
+        Buffer used internally. This buffer may contains the
+        initial parition if S > 0.
+    Y: array, shape (>= nnz, n_channels * n_times_atom)
+        Buffer used internally
+
+    Output
+
+    D: array, shape (n_atoms, n_channels, n_times_atom)
+        The dictionary
 
     Returns
     -------
@@ -704,6 +760,74 @@ def kmean(X, nnz, nz_index, S,
             break
 
     return E
+
+
+# =============================================
+# JIT functions used by Initialization Strategy
+# =============================================
+
+
+@nb.njit(
+    nb.void(_float64_r(3), nb.float64, nb.int32,
+            _int32_w(), _int32_w(3)),
+    cache=True, nogil=True
+)
+def _dp_init(X, reg, n_times_atom,
+             nnz, nz_index):
+    N, C, T = X.shape
+    reg *= 2  # We scale the energy by 2 to avoid halving the l2 objective
+
+    # DP data
+    dp = np.empty(T+1, dtype=np.float64)
+    last = np.empty(T+1, dtype=np.int32)
+    dp[:n_times_atom] = 0
+    last[:n_times_atom] = -1
+
+    # patch is a circular array storing the last L=n_times_atom
+    # entries of the residual (X - X_hat)
+    patch = np.empty(n_times_atom, dtype=np.float64)
+
+    for trial in range(N):
+        x = X[trial]  # trial's signal
+
+        # Compute the squared norm of the first patch of the signal
+        n2 = 0
+        for t in range(n_times_atom):
+            xtx = 0
+            for c in range(C):
+                xtx += x[c, t]**2
+            patch[t] = xtx
+            n2 += xtx
+
+        # Main DP loop
+        for t in range(n_times_atom, T+1):
+            # Dynmaic programming step
+            E = dp[t-n_times_atom] + reg - n2
+            if E < dp[t-1]:
+                dp[t], last[t] = E, t
+            else:
+                dp[t], last[t] = dp[t-1], last[t-1]
+
+            # Index of the current time in the circular array
+            tp = t % n_times_atom
+
+            # Update squared norm of next patch
+            n2 -= patch[tp]
+            if t < T:
+                xtx = 0
+                for c in range(C):
+                    xtx += x[c, t]**2
+                patch[t] = xtx
+                n2 += xtx
+
+        # Get temporal support from DP
+        ind, t = 0, last[T]
+        while t != -1:
+            t -= n_times_atom
+            nz_index[ind][1] = t
+            ind += 1
+            t = last[t]
+        nnz[trial] = ind
 
 
 # ==============================================
@@ -928,3 +1052,44 @@ class NoOverlapDSolver(BaseDSolver):
 
     def prox(self, D_hat):
         return prox_d(D_hat)
+
+
+# ==============================================
+# Dictionary initializer for CSC without overlap
+# ==============================================
+
+class NoOverlapStrategy():
+    """A class that creates a dictionary for a specified shape with
+    a strategy thought for the no-overlap case.
+
+    Parameters
+    ----------
+    shape: tuple
+        Expected shape of the dictionary. (n_atoms, n_channels, n_times_atom)
+    reg: float
+        Regularization parameter in the minimized energy
+        E = - 0.5 * || X ||_2^2 + reg * || z ||_0
+    """
+
+    def __init__(self, shape, reg):
+        self.shape = shape
+        self.reg = reg
+
+    def initialize(self, X):
+        n_trials, n_channels, n_times = X.shape
+        n_atoms, _, n_times_atom = self.shape
+        nnz = np.empty(n_trials, dtype=np.int32)
+        nz_index = np.empty(
+            (n_trials, n_times // n_times_atom, 2),
+            dtype=np.int32
+        )
+        _dp_init(X, self.reg, n_times_atom, nnz, nz_index)
+        S = nnz.sum()
+        kmean_init_data = np.empty(2*S, dtype=np.float64)
+        kmean_updt_data = np.empty(2*S + n_atoms + 1, dtype=np.int32)
+        kmean_init(X, nnz, nz_index, n_atoms, n_times_atom,
+                   kmean_init_data, kmean_updt_data)
+        Y = np.empty((S, n_channels * n_times_atom), dtype=np.float64)
+        D = np.empty(self.shape, dtype=np.float64)
+        kmean(X, nnz, nz_index, S, kmean_updt_data, Y, D)
+        return D
