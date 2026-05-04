@@ -209,8 +209,9 @@ class BaseDSolver:
     """Base class for a d solver."""
 
     def __init__(self, n_channels, n_atoms, n_times_atom,
-                 uv_constraint, D_init, resample_strategy, window, eps,
-                 max_iter, momentum, random_state, verbose, debug):
+                 uv_constraint, D_init, init_kwargs,
+                 resample_strategy, window, eps, max_iter,
+                 momentum, random_state, verbose, debug):
 
         self.n_channels = n_channels
         self.n_atoms = n_atoms
@@ -225,7 +226,7 @@ class BaseDSolver:
         self.D_init = D_init
 
         self.init_strategy = get_init_strategy(
-            n_times_atom, self.get_D_shape(), self.rng, D_init
+            n_times_atom, self.get_D_shape(), self.rng, D_init, **init_kwargs
         )
 
         if not window:

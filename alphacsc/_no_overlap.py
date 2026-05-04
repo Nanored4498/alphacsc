@@ -1021,11 +1021,15 @@ class NoOverlapEncoder(BaseZEncoder):
 class NoOverlapDSolver(BaseDSolver):
 
     def __init__(self, n_channels, n_atoms, n_times_atom,
-                 uv_constraint, D_init, resample_strategy, window, eps,
-                 max_iter, momentum, random_state, verbose, debug):
-        super().__init__(n_channels, n_atoms, n_times_atom,
-                         uv_constraint, D_init, resample_strategy, window, eps,
-                         max_iter, momentum, random_state, verbose, debug)
+                 uv_constraint, D_init, init_kwargs,
+                 resample_strategy, window, eps, max_iter,
+                 momentum, random_state, verbose, debug):
+
+        super().__init__(
+            n_channels, n_atoms, n_times_atom, uv_constraint,
+            D_init, init_kwargs, resample_strategy, window, eps,
+			max_iter, momentum, random_state, verbose, debug
+        )
 
     def update_D(self, z_encoder):
         nnz, nz_index, _ = z_encoder.get_z_sparse()

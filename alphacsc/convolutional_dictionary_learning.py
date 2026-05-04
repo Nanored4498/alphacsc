@@ -139,7 +139,7 @@ class ConvolutionalDictionaryLearning(TransformerMixin):
                  solver_z='l_bfgs', solver_z_kwargs={},
                  solver_d='auto', solver_d_kwargs={},
                  reg=0.1, lmbd_max='fixed', eps=1e-10,
-                 D_init=None,
+                 D_init=None, init_kwargs={},
                  algorithm='batch', algorithm_params={},
                  unbiased_z_hat=False, verbose=10, callback=None,
                  random_state=None, name="_CDL", raise_on_increase=True,
@@ -174,6 +174,7 @@ class ConvolutionalDictionaryLearning(TransformerMixin):
         self.solver_d = solver_d
         self.solver_d_kwargs = solver_d_kwargs
         self.D_init = D_init
+        self.init_kwargs = init_kwargs
 
         # Technical parameters
         self.n_jobs = n_jobs
@@ -198,7 +199,7 @@ class ConvolutionalDictionaryLearning(TransformerMixin):
             n_iter=self.n_iter, eps=self.eps,
             solver_z=self.solver_z, solver_z_kwargs=self.solver_z_kwargs,
             solver_d=self.solver_d, solver_d_kwargs=self.solver_d_kwargs,
-            D_init=self.D_init,
+            D_init=self.D_init, init_kwargs=self.init_kwargs,
             unbiased_z_hat=False, verbose=self.verbose, callback=self.callback,
             random_state=self.random_state, n_jobs=self.n_jobs,
             name=self.name, raise_on_increase=self.raise_on_increase,
@@ -343,7 +344,8 @@ class BatchCDL(ConvolutionalDictionaryLearning):
                  solver_z='lgcd', solver_z_kwargs={}, unbiased_z_hat=False,
                  solver_d='auto', solver_d_kwargs={},
                  rank1=True, window=False, uv_constraint='auto',
-                 lmbd_max='scaled', eps=1e-10, D_init=None,
+                 lmbd_max='scaled', eps=1e-10,
+                 D_init=None, init_kwargs={},
                  verbose=10, random_state=None, sort_atoms=False):
         super().__init__(
             n_atoms, n_times_atom, reg=reg, n_iter=n_iter,
@@ -351,7 +353,7 @@ class BatchCDL(ConvolutionalDictionaryLearning):
             rank1=rank1, window=window, uv_constraint=uv_constraint,
             unbiased_z_hat=unbiased_z_hat, sort_atoms=sort_atoms,
             solver_d=solver_d, solver_d_kwargs=solver_d_kwargs,
-            eps=eps, D_init=D_init,
+            eps=eps, D_init=D_init, init_kwargs=init_kwargs,
             algorithm='batch', lmbd_max=lmbd_max, raise_on_increase=True,
             n_jobs=n_jobs, verbose=verbose, callback=None,
             random_state=random_state, name="BatchCDL"
@@ -370,7 +372,8 @@ class GreedyCDL(ConvolutionalDictionaryLearning):
                  solver_z='lgcd', solver_z_kwargs={}, unbiased_z_hat=False,
                  solver_d='auto', solver_d_kwargs={},
                  rank1=True, window=False, uv_constraint='auto',
-                 lmbd_max='scaled', eps=1e-10, D_init=None,
+                 lmbd_max='scaled', eps=1e-10,
+                 D_init=None, init_kwargs={},
                  verbose=10, random_state=None, sort_atoms=False):
         super().__init__(
             n_atoms, n_times_atom, reg=reg, n_iter=n_iter,
@@ -378,7 +381,7 @@ class GreedyCDL(ConvolutionalDictionaryLearning):
             rank1=rank1, window=window, uv_constraint=uv_constraint,
             unbiased_z_hat=unbiased_z_hat, sort_atoms=sort_atoms,
             solver_d=solver_d, solver_d_kwargs=solver_d_kwargs,
-            eps=eps, D_init=D_init,
+            eps=eps, D_init=D_init, init_kwargs=init_kwargs,
             algorithm='greedy', lmbd_max=lmbd_max, raise_on_increase=True,
             n_jobs=n_jobs, verbose=verbose, callback=None,
             random_state=random_state, name="GreedyCDL"

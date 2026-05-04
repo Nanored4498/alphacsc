@@ -23,7 +23,7 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
                     algorithm='batch', algorithm_params=dict(),
                     solver_z='l-bfgs', solver_z_kwargs=dict(),
                     solver_d='auto', solver_d_kwargs=dict(),
-                    D_init=None,
+                    D_init=None, init_kwargs=dict(),
                     unbiased_z_hat=False, stopping_pobj=None,
                     raise_on_increase=True, verbose=10, callback=None,
                     random_state=None, name="DL", window=False,
@@ -164,10 +164,15 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
     # initialization
     start = time.time()
 
+    # Use reg parameter for intialization with no-overlap
+    if D_init == "no-overlap" and D_init == solver_d:
+        if "reg" not in init_kwargs:
+            init_kwargs = init_kwargs | {"reg":reg}
+
     d_solver = get_solver_d(
         n_channels, n_atoms, n_times_atom, solver_d=solver_d, rank1=rank1,
-        uv_constraint=uv_constraint, D_init=D_init, window=window,
-        random_state=random_state, **solver_d_kwargs
+        uv_constraint=uv_constraint, D_init=D_init, init_kwargs=init_kwargs,
+        window=window, random_state=random_state, **solver_d_kwargs
     )
 
     D_hat = d_solver.init_dictionary(X)

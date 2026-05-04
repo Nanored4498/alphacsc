@@ -11,7 +11,7 @@ from .utils.dictionary import tukey_window
 from .utils.dictionary import get_uv
 from .utils.validation import check_random_state
 
-def get_init_strategy(n_times_atom, shape, random_state, D_init):
+def get_init_strategy(n_times_atom, shape, random_state, D_init, init_kwargs):
     """Returns dictionary initialization strategy.
 
     Parameters
@@ -38,7 +38,7 @@ def get_init_strategy(n_times_atom, shape, random_state, D_init):
         return GreedyStrategy(shape)
     elif D_init == 'no-overlap':
         from ._no_overlap import NoOverlapStrategy
-        return NoOverlapStrategy(shape)
+        return NoOverlapStrategy(shape, **init_kwargs)
     else:
         raise NotImplementedError('It is not possible to initialize uv'
                                   ' with parameter {}.'.format(D_init))
@@ -146,8 +146,10 @@ class GreedyStrategy():
 
 from ._no_overlap import NoOverlapStrategy
 
+
 def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
-                    rank1=True, window=False, D_init=None, random_state=None):
+                    rank1=True, window=False, D_init=None, random_state=None,
+                    reg=None):
     """Return an initial dictionary for the signals X
 
     Parameter
@@ -173,6 +175,8 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
         (n_atoms, n_channels, n_times_atom)
     random_state: int | None
         The random state.
+    reg: float
+        Regularization parameter used with D_init='no-overlap'
 
     Return
     ------
@@ -208,7 +212,8 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
 
     elif D_init == 'no-overlap':
         assert not rank1
-        D_hat = NoOverlapStrategy(D_shape).initialize(X)
+        assert reg is not None
+        D_hat = NoOverlapStrategy(D_shape, reg).initialize(X)
 
     else:
         raise NotImplementedError('It is not possible to initialize uv with'
