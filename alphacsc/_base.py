@@ -226,7 +226,7 @@ class BaseDSolver:
         self.D_init = D_init
 
         self.init_strategy = get_init_strategy(
-            n_times_atom, self.get_D_shape(), self.rng, D_init, **init_kwargs
+            n_times_atom, self.get_D_shape(), self.rng, D_init, init_kwargs
         )
 
         if not window:
