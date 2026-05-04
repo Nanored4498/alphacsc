@@ -11,6 +11,7 @@ from .utils.dictionary import tukey_window
 from .utils.dictionary import get_uv
 from .utils.validation import check_random_state
 
+
 def get_init_strategy(n_times_atom, shape, random_state, D_init, init_kwargs):
     """Returns dictionary initialization strategy.
 
@@ -144,7 +145,7 @@ class GreedyStrategy():
         return np.empty(shape=(0, *self.shape[1:]), dtype=np.float64)
 
 
-from ._no_overlap import NoOverlapStrategy
+from ._no_overlap import NoOverlapStrategy  # noqa: E402
 
 
 def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',

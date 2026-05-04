@@ -165,9 +165,12 @@ def learn_d_z_multi(X, n_atoms, n_times_atom, n_iter=60, n_jobs=1,
     start = time.time()
 
     # Use reg parameter for intialization with no-overlap
-    if isinstance(D_init, str) and D_init is "no-overlap" and D_init == solver_d:
+    if (
+        isinstance(D_init, str) and D_init == "no-overlap"
+        and D_init == solver_d
+    ):
         if "reg" not in init_kwargs:
-            init_kwargs = init_kwargs | {"reg":reg}
+            init_kwargs = init_kwargs | {"reg": reg}
 
     d_solver = get_solver_d(
         n_channels, n_atoms, n_times_atom, solver_d=solver_d, rank1=rank1,

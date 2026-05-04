@@ -817,14 +817,14 @@ def _dp_init(X, reg, n_times_atom,
                 xtx = 0
                 for c in range(C):
                     xtx += x[c, t]**2
-                patch[t] = xtx
+                patch[tp] = xtx
                 n2 += xtx
 
         # Get temporal support from DP
         ind, t = 0, last[T]
         while t != -1:
             t -= n_times_atom
-            nz_index[ind][1] = t
+            nz_index[trial, ind, 1] = t
             ind += 1
             t = last[t]
         nnz[trial] = ind
@@ -1028,7 +1028,7 @@ class NoOverlapDSolver(BaseDSolver):
         super().__init__(
             n_channels, n_atoms, n_times_atom, uv_constraint,
             D_init, init_kwargs, resample_strategy, window, eps,
-			max_iter, momentum, random_state, verbose, debug
+            max_iter, momentum, random_state, verbose, debug
         )
 
     def update_D(self, z_encoder):
