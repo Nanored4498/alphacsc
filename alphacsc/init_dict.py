@@ -11,9 +11,6 @@ from .utils.dictionary import tukey_window
 from .utils.dictionary import get_uv
 from .utils.validation import check_random_state
 
-from ._no_overlap import NoOverlapStrategy
-
-
 def get_init_strategy(n_times_atom, shape, random_state, D_init):
     """Returns dictionary initialization strategy.
 
@@ -40,6 +37,7 @@ def get_init_strategy(n_times_atom, shape, random_state, D_init):
     elif D_init == 'greedy':
         return GreedyStrategy(shape)
     elif D_init == 'no-overlap':
+        from ._no_overlap import NoOverlapStrategy
         return NoOverlapStrategy(shape)
     else:
         raise NotImplementedError('It is not possible to initialize uv'
@@ -145,6 +143,8 @@ class GreedyStrategy():
     def initialize(self, X):
         return np.empty(shape=(0, *self.shape[1:]), dtype=np.float64)
 
+
+from ._no_overlap import NoOverlapStrategy
 
 def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
                     rank1=True, window=False, D_init=None, random_state=None):

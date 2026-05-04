@@ -449,7 +449,7 @@ def _find_max_error_patch(D, X,
 
 
 @nb.njit(
-    nb.void(_int32_r(), _int32_r(3), _float64_r(2), _float64_r(3),
+    nb.void(_float64_r(3), _int32_r(), _int32_r(3), _float64_r(2),
             _float64_w(3), _float64_w(3), _float64_w(3), _int32_w()),
     cache=True, nogil=True
 )
