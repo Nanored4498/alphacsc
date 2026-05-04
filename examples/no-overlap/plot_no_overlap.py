@@ -46,14 +46,15 @@ n_times_atom = 180
 lmbd = 0.1 * n_times_atom / n_times
 
 ###############################################################################
-# We are now able to intialize a dictionary
+# We are now able to intialize a dictionary using a strategy for the
+# non-overlapping case
 
 from alphacsc.init_dict import init_dictionary
 
 D0 = init_dictionary(
     X,
     n_atoms=n_atoms, n_times_atom=n_times_atom,
-    rank1=False, random_state=0
+    rank1=False, D_init='no-overlap', reg=lmbd
 )
 
 
