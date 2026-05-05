@@ -1,13 +1,18 @@
+# -*- coding: utf-8 -*-
 """
 ==================
 No-overlap example
 ==================
+
 In this example, we use the no-overlap solver on an open dataset of gait (steps)
 IMU time-series to discover patterns in the data. We will then use those to
 attempt to detect steps and compare our findings with the ground truth.
 """
 
 ###############################################################################
+# Using 'no-overlap'
+# ------------------
+#
 # Retrieve trial data
 
 from dicodile.data.gait import get_gait_data
@@ -109,3 +114,11 @@ ax_hat.set_xlabel('time (x10ms)')
 ax_hat.set_ylabel('acceleration ($m.s^{-2}$)')
 ax_hat.legend()
 plt.show()
+
+###############################################################################
+# Plot the atoms learned inside the dictionary
+
+from dicodile.utils.viz import display_dictionaries
+
+display_dictionaries(cdl._D_hat)
+
