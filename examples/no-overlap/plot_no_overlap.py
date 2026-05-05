@@ -90,12 +90,16 @@ print("Non zero coefficients count:", nnz)
 
 from alphacsc.utils.convolution import construct_X_multi
 
-X_hat = construct_X_multi(cdl._z_hat, cdl._D_hat)
-diff = X - X_hat
-E0 = .5 * diff.ravel() @ diff.ravel() / X.var()
-E = E0 + lmbd * nnz / X.var()
-print("l2-objective:", round(E0, 1))
-print("BatchCDL objective:", round(E, 1))
+def reconstruct(cdl):
+    X_hat = construct_X_multi(cdl._z_hat, cdl._D_hat)
+    diff = X - X_hat
+    E0 = .5 * diff.ravel() @ diff.ravel() / X.var()
+    E = E0 + lmbd * nnz / X.var()
+    print("l2-objective:", round(E0, 1))
+    print("BatchCDL 'no-overlap' objective:", round(E, 1))
+    return X_hat
+
+X_hat = reconstruct(cdl)
 
 ###############################################################################
 # Plot a small part of the original and reconstructed signals
@@ -122,3 +126,42 @@ from dicodile.utils.viz import display_dictionaries
 
 display_dictionaries(cdl._D_hat)
 
+###############################################################################
+# Comparisons
+# -----------
+#
+# Let's compare results obtained when using a random initializer
+
+import time
+
+lgcd_reg = 4. * lmbd * n_times / n_times_atom / X.std()
+
+args = [
+    {"solver_z": 'no-overlap', "D_init": 'no-overlap', "solver_d": 'no-overlap'},
+    {"solver_z": 'no-overlap', "D_init": 'no-overlap', "solver_d": 'fista'},
+    {"solver_z": 'no-overlap', "D_init": 'random', "solver_d": 'no-overlap'},
+    {"solver_z": 'no-overlap', "D_init": 'random', "solver_d": 'fista'},
+    {"solver_z": 'lgcd', "D_init": 'no-overlap', "solver_d": 'fista'},
+    {"solver_z": 'lgcd', "D_init": 'random', "solver_d": 'fista'},
+]
+
+for kwarg in args:
+    print(kwarg)
+    print("="*len(repr(kwarg)))
+
+    reg = lgcd_reg if kwarg["solver_z"] == 'lgcd' else lmbd / X.var()
+    if kwarg["D_init"] == 'no-overlap':
+        kwarg['init_kwargs'] = {"reg": reg}
+    cdl2 = BatchCDL(
+        n_atoms, n_times_atom, 
+        random_state=42, rank1=False, 
+        lmbd_max="fixed", reg=reg, n_iter=5,
+        verbose=0, **kwarg
+    )
+    start = time.time()
+    cdl2.fit(X)
+    fit_time = time.time() - start
+
+    print("time:", fit_time)
+    reconstruct(cdl2)
+    print()
