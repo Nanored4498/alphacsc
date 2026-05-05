@@ -130,7 +130,8 @@ display_dictionaries(cdl._D_hat)
 # Comparisons
 # -----------
 #
-# Let's compare results obtained when using a random initializer
+# Let's compare timings and objectives when using different solvers and
+# initializers
 
 import time
 
