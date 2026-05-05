@@ -327,6 +327,7 @@ def _batch_learn(z_encoder, d_solver, end_iter_func, n_iter=100,
         times.append(time.time() - start)
         pobj.append(z_encoder.get_cost())
 
+        z_nnz = z_encoder.get_z_nnz()
         null_atom_indices = np.where(z_nnz < 2)[0]
         if len(null_atom_indices) > 0:
             k0 = null_atom_indices[0]

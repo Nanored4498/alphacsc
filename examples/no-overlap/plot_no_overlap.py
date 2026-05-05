@@ -45,7 +45,7 @@ for i in range(n_trials):
 n_atoms = 12
 
 # set individual atom (patch) size.
-n_times_atom = 180
+n_times_atom = 120
 
 # set regularization parameter
 lmbd = 0.1 * n_times_atom / n_times
