@@ -223,10 +223,36 @@ def _get_nz_values(D_mul, last, atom_index, atom_coeff, n_times_atom,
 
 
 @nb.njit(
+    nb.float64(_float64_r(3), _float64_r(), _float64_r(2), nb.int32,
+               _int32_w(2), _float64_w()),
+    cache=True, nogil=True
+)
+def _compute_z_from_T_aux(D, D_mul, X, nnz, nz_index, nz_coeff):
+    """
+    Auxiliary function for _compute_z_from_T
+    """
+    p, C, L = D.shape
+    E0 = 0
+    for ind in range(nnz):
+        t = nz_index[ind, 1]
+        max_proj, best = 0., 0
+        for atom in range(p):
+            proj = 0.
+            for c in range(C):
+                proj += D[atom, c] @ X[c, t:t+L]
+            if np.abs(proj) > np.abs(max_proj):
+                max_proj, best = proj, atom
+        E0 -= max_proj**2
+        nz_index[ind, 0] = best
+        nz_coeff[ind] = max_proj * D_mul[best]
+    return E0
+
+
+@nb.njit(
     nb.float64(_float64_r(3), _float64_r(), _float64_r(3), _int32_r(),
                nb.float64, nb.float64,
                _int32_w(3), _float64_w(2)),
-    cache=True, nogil=True
+    cache=True, nogil=True, parallel=True
 )
 def _compute_z_from_T(D, D_mul, X, nnz,
                       XtX, reg,
@@ -277,21 +303,12 @@ def _compute_z_from_T(D, D_mul, X, nnz,
     """
     E0, Ereg = XtX, 0
     N = X.shape[0]
-    p, C, L = D.shape
-    for trial in range(N):
+    for trial in nb.prange(N):
         Ereg += nnz[trial]
-        for ind in range(nnz[trial]):
-            t = nz_index[trial][ind][1]
-            max_proj, best = 0, 0
-            for atom in range(p):
-                proj = 0
-                for c in range(C):
-                    proj += D[atom, c] @ X[trial, c, t:t+L]
-                if np.abs(proj) > np.abs(max_proj):
-                    max_proj, best = proj, atom
-            E0 -= max_proj**2
-            nz_index[trial][ind][0] = best
-            nz_coeff[trial][ind] = max_proj * D_mul[best]
+        E0 += _compute_z_from_T_aux(
+            D, D_mul, X[trial],
+            nnz[trial], nz_index[trial], nz_coeff[trial]
+        )
     return .5 * E0 + reg * Ereg
 
 
@@ -915,6 +932,8 @@ class NoOverlapEncoder(BaseZEncoder):
         self.cost = self.XtX
         self.z_hat_computed = False
 
+        # TODO: parallelize this function
+
         if self.use_fft:
             # TODO: use batches of size 8 instead of size p
             # in order to not allocate too large buffers
@@ -959,6 +978,7 @@ class NoOverlapEncoder(BaseZEncoder):
     def _update_z(self):
         if self.cost is not None:
             return
+        nb.set_num_threads(self.n_jobs)
         self.cost = _compute_z_from_T(self.D_hat, self.D_mul, self.X, self.nnz,
                                       self.XtX, self.reg,
                                       self.nz_index, self.nz_coeff)

@@ -118,9 +118,10 @@ DEFAULT = dict(
     .. math::
         \min_{D, Z} \sum_{n=1}^N
             \frac{1}{2} \|X^{(n)} - \sum_{k=1}^K D_k*Z^{(n)}_k\|_2^2
-            + \lambda\|Z^{(n)}\|_1
+            + \lambda\|Z^{(n)}\|_p
 
-    for `K = n_atoms` and `N = n_samples`.
+    for `K = n_atoms`, `N = n_samples` and `p` the order of the regularization
+    norm. Usually `p = 1` except for `solver_z = 'no-overlap'` where `p = 0`.
     """,
     algorithm="""
 
