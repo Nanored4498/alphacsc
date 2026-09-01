@@ -800,8 +800,8 @@ def _dp_init(X, reg, n_times_atom,
     dp[:n_times_atom] = 0
     last[:n_times_atom] = -1
 
-    # patch is a circular array storing the last L=n_times_atom
-    # entries of the residual (X - X_hat)
+    # patch is a circular array storing the last n_times_atom
+    # entries of the signal squared normed ||X_t||_2^2
     patch = np.empty(n_times_atom, dtype=np.float64)
 
     for trial in range(N):
@@ -1085,6 +1085,9 @@ class NoOverlapDSolver(BaseDSolver):
 class NoOverlapStrategy():
     """A class that creates a dictionary for a specified shape with
     a strategy thought for the no-overlap case.
+    This strategy first compute a temporal support minimizing the energy
+    E = - 0.5 * || X ||_2^2 + reg * || z ||_0
+    Then it applies the NoOverlapDSolver over the computed temporal support.
 
     Parameters
     ----------
