@@ -932,7 +932,7 @@ class NoOverlapEncoder(BaseZEncoder):
         self.cost = self.XtX
         self.z_hat_computed = False
 
-        # TODO: parallelize this function
+        # TODO: parallelize this function
 
         if self.use_fft:
             # TODO: use batches of size 8 instead of size p
