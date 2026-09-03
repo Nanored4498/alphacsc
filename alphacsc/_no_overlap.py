@@ -863,6 +863,10 @@ class NoOverlapEncoder(BaseZEncoder):
     USE_FFT_THRESHOLD = 2.
 
     def __init__(self, X, D_hat, n_jobs, solver_kwargs, reg):
+        assert D_hat.ndim == 3, (
+            "rank1=True is not supported for NoOverlapEncoder yet"
+        )
+
         super().__init__(X, D_hat, n_jobs, solver_kwargs, reg)
 
         self.dp = np.empty(self.n_times+1, dtype=np.float64)

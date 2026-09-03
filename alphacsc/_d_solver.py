@@ -139,7 +139,10 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
                 max_iter, momentum, random_state, verbose, debug
             )
         else:
-            raise ValueError('Unknown solver_d: %s' % (solver_d, ))
+            raise ValueError(
+                f'Unknown solver_d: {solver_d!r}\n'
+                'This solver may not be available with rank1=True'
+            )
     else:
         if solver_d in ['auto', 'fista']:
             return DSolver(
@@ -154,7 +157,10 @@ def get_solver_d(n_channels, n_atoms, n_times_atom,
                 max_iter, momentum, random_state, verbose, debug
             )
         else:
-            raise ValueError('Unknown solver_d: %s' % (solver_d, ))
+            raise ValueError(
+                f'Unknown solver_d: {solver_d!r}\n'
+                'This solver may not be available with rank1=False'
+            )
 
 
 class Rank1DSolver(BaseDSolver):

@@ -188,9 +188,8 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
     n_trials, n_channels, n_times = X.shape
     rng = check_random_state(random_state)
 
-    D_shape = (n_atoms, n_channels, n_times_atom)
-    if rank1:
-        D_shape = (n_atoms, n_channels + n_times_atom)
+    D_shape_full = (n_atoms, n_channels, n_times_atom)
+    D_shape = (n_atoms, n_channels + n_times_atom) if rank1 else D_shape_full
 
     if isinstance(D_init, np.ndarray):
         D_hat = D_init.copy()
@@ -200,7 +199,7 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
         D_hat = rng.randn(*D_shape)
 
     elif D_init == 'chunk':
-        D_hat = np.zeros((n_atoms, n_channels, n_times_atom))
+        D_hat = np.zeros(D_shape_full)
         for i_atom in range(n_atoms):
             i_trial = rng.randint(n_trials)
             t0 = rng.randint(n_times - n_times_atom)
@@ -212,9 +211,10 @@ def init_dictionary(X, n_atoms, n_times_atom, uv_constraint='separate',
         raise NotImplementedError()
 
     elif D_init == 'no-overlap':
-        assert not rank1
         assert reg is not None
-        D_hat = NoOverlapStrategy(D_shape, reg).initialize(X)
+        D_hat = NoOverlapStrategy(D_shape_full, reg).initialize(X)
+        if rank1:
+            D_hat = get_uv(D_hat)
 
     else:
         raise NotImplementedError('It is not possible to initialize uv with'
