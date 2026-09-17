@@ -1090,8 +1090,11 @@ class NoOverlapStrategy():
     """A class that creates a dictionary for a specified shape with
     a strategy thought for the no-overlap case.
     This strategy first compute a temporal support minimizing the energy
-    E = - 0.5 * || X ||_2^2 + reg * || z ||_0
-    Then it applies the NoOverlapDSolver over the computed temporal support.
+    E = || X - X_hat ||_2^2 + reg * || z ||_0
+    Where X_hat here, is a signal equivalent to X over patches selected in the
+    temporal support, and zero everywhere else.
+    Then a step of NoOverlapDSolver over the computed temporal support is used
+    to compute a first value of the dictionary D.
 
     Parameters
     ----------
@@ -1099,7 +1102,7 @@ class NoOverlapStrategy():
         Expected shape of the dictionary. (n_atoms, n_channels, n_times_atom)
     reg: float
         Regularization parameter in the minimized energy
-        E = - 0.5 * || X ||_2^2 + reg * || z ||_0
+       E = || X - X_hat ||_2^2 + reg * || z ||_0
     """
 
     def __init__(self, shape, reg):
